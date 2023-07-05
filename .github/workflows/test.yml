@@ -1,0 +1,16 @@
+name: test
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  example:
+    name: example
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+      - name: Install GOAT
+        run: go install .
+      
