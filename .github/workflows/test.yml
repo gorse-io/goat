@@ -1,8 +1,10 @@
 name: test
 
 on:
-  - push
-  - pull_request
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   example:
@@ -13,4 +15,6 @@ jobs:
       - uses: actions/setup-go@v2
       - name: Install GOAT
         run: go install .
-      
+      - name: Run GOAT
+        run: goat src/avx_mul_to.c -O3 -mavx -mfma -mavx512f -mavx512dq
+        working-directory: example
