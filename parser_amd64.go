@@ -16,11 +16,12 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"github.com/klauspost/asmfmt"
 	"os"
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/klauspost/asmfmt"
 )
 
 const buildTags = "//go:build !noasm && amd64\n"
@@ -163,7 +164,8 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 			if assembly == "" {
 				return fmt.Errorf("try to increase --insn-width of objdump")
 			} else if strings.HasPrefix(assembly, "nop") ||
-				assembly == "xchg   %ax,%ax" {
+				assembly == "xchg   %ax,%ax" ||
+				assembly == "cs nopw 0x0(%rax,%rax,1)" {
 				continue
 			}
 			if lineNumber >= len(functions[functionName]) {

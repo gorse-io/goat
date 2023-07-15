@@ -25,3 +25,21 @@ jobs:
       - name: Run tests
         run: go test -v ./...
         working-directory: example
+
+  cases:
+    name: cases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v4
+      - name: Install clang
+        uses: ConorMacBride/install-package@v1
+        with:
+          apt: clang libc6-dev-i386
+      - name: Install GOAT
+        run: go install .
+      - name: Run tests
+        run: |
+          for file in tests/*.c; do
+            goat $file -O3 -mavx -mfma
+          done
