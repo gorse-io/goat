@@ -29,12 +29,12 @@ go install github.com/gorse-io/goat@latest
 ```bash
 git clone https://github.com/gorse-io/goat.git
 cd goat/example
-goat src/mul_to.c -O3 -mavx -mfma -mavx512f -mavx512dq
+goat src/avx_mul_to.c -O3 -mavx -mfma -mavx512f -mavx512dq
 ```
 
-GoAT transpiles [example/src/mul_to.c](./example/src/mul_to.c) to two files.
+GoAT transpiles [example/src/avx_mul_to.c](./example/src/avx_mul_to.c) to two files.
 
-Go function definition file `mul_to.go`:
+Go function definition file `avx_mul_to.go`:
 
 ```go
 //go:build !noasm && amd64
@@ -48,7 +48,7 @@ import "unsafe"
 func avx_mul_to(a, b, c, n unsafe.Pointer)
 ```
 
-Go assembly file `mul_to.s`:
+Go assembly file `avx_mul_to.s`:
 
 ```
 //go:build !noasm && amd64
