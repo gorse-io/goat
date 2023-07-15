@@ -7,7 +7,7 @@ jobs:
     resource_class: arm.large
     steps:
       - checkout
-      - run
+      - run:
           name: Install dependencies
           command: |
             sudo apt-get update
