@@ -6,7 +6,18 @@ It help to utilize optimization from C compiler in Go projects. For example, gen
 
 ## Install
 
+1. Install prerequisites
+
+```bash
+sudo apt update
+sudo apt install clang libc6-dev-i386
+```
+
+2. Install GoAT
+
+```bash
 go install github.com/gorse-io/goat@latest
+```
 
 ## Usage
 

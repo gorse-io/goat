@@ -22,3 +22,6 @@ jobs:
       - name: Run GOAT
         run: goat src/avx_mul_to.c -O3 -mavx -mfma
         working-directory: example
+      - name: Run tests
+        run: go test -v ./...
+        working-directory: example
