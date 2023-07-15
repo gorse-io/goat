@@ -40,6 +40,6 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
-          for file in tests/*.c
+          for file in tests/*.c; do
             goat $file -O3 -mavx -mfma
           done
