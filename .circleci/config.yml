@@ -1,7 +1,7 @@
 version: 2.1
 
 jobs:
-  build:
+  arm64:
     machine:
       image: ubuntu-2004:current
     resource_class: arm.large
@@ -11,7 +11,7 @@ jobs:
           name: Install dependencies
           command: |
             sudo apt-get update
-            sudo apt-get install -y clang libc6-dev-i386
+            sudo apt-get install -y clang
       - run:
           name: Install GOAT
           command: go install .
@@ -21,3 +21,8 @@ jobs:
             for file in tests/*.c; do
               goat $file -O3 -mavx -mfma
             done
+
+workflows:
+  test:
+    jobs:
+      - arm64
