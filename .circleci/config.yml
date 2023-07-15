@@ -1,7 +1,7 @@
 version: 2.1
 
 jobs:
-  arm64:
+  test-arm64:
     machine:
       image: ubuntu-2004:current
     resource_class: arm.large
@@ -21,8 +21,3 @@ jobs:
             for file in tests/*.c; do
               goat $file -O3 -mavx -mfma
             done
-
-workflows:
-  test:
-    jobs:
-      - arm64
