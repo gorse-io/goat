@@ -1,0 +1,23 @@
+version: 2.1
+
+jobs:
+  build:
+    machine:
+      image: ubuntu-2004:current
+    resource_class: arm.large
+    steps:
+      - checkout
+      - run
+          name: Install dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y clang libc6-dev-i386
+      - run:
+          name: Install GOAT
+          command: go install .
+      - run:
+          name: Run tests
+          command: |
+            for file in tests/*.c; do
+              goat $file -O3 -mavx -mfma
+            done
