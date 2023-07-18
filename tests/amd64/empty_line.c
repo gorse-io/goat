@@ -1,7 +1,5 @@
 #include <immintrin.h>
 
-#include <immintrin.h>
-
 void l2(float *a, float *b, float *res, long *len)
 {
     int n = *len;
