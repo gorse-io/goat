@@ -110,10 +110,12 @@ func parseAssembly(path string) (map[string][]Line, error) {
 			continue
 		} else if nameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
+			fmt.Println(functionName, labelName)
 			functions[functionName] = make([]Line, 0)
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
+			fmt.Println(functionName, labelName)
 			functions[functionName] = append(functions[functionName], Line{Label: labelName})
 		} else if codeLine.MatchString(line) {
 			asm := strings.Split(line, "#")[0]
@@ -121,6 +123,7 @@ func parseAssembly(path string) (map[string][]Line, error) {
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
 			} else {
+				fmt.Println(functionName)
 				lines := functions[functionName]
 				lines[len(lines)-1].Assembly = asm
 				labelName = ""
