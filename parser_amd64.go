@@ -122,7 +122,9 @@ func parseAssembly(path string) (map[string][]Line, error) {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
 			} else {
 				lines := functions[functionName]
-				lines[len(lines)-1].Assembly = asm
+				if len(lines) > 0 {
+					lines[len(lines)-1].Assembly = asm
+				}
 				labelName = ""
 			}
 		}
