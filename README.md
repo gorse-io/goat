@@ -7,7 +7,7 @@ Go assembly transpiler for C programming languages.
 
 <img src="./logo.webp" width="200" height="200" />
 
-It help to utilize optimization from C compiler in Go projects. For example, generate SIMD vectorized functions for Go (refer to How to Use AVX512 in Golang).
+It help to utilize optimization from C compiler in Go projects. For example, generate SIMD vectorized functions for Go (refer to [How to Use AVX512 in Golang](https://gorse.io/posts/avx512-in-golang.html)).
 
 ## Install
 
