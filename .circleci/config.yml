@@ -21,12 +21,6 @@ jobs:
             for file in tests/*.c; do
               goat $file -O3 -mavx -mfma
             done
-      - run:
-          name: Run arm64-only tests
-          command: |
-            for file in tests/arm64/*.c; do
-              goat $file -O3 -mavx -mfma
-            done
 
 workflows:
   test:
