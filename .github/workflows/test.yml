@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   example:
@@ -41,5 +41,10 @@ jobs:
       - name: Run tests
         run: |
           for file in tests/*.c; do
+            goat $file -O3 -mavx -mfma
+          done
+      - name: Run amd64-only tests
+        run: |
+          for file in tests/amd64/*.c; do
             goat $file -O3 -mavx -mfma
           done

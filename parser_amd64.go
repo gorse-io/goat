@@ -111,17 +111,22 @@ func parseAssembly(path string) (map[string][]Line, error) {
 		} else if nameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
 			functions[functionName] = make([]Line, 0)
+			labelName = ""
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
 			functions[functionName] = append(functions[functionName], Line{Label: labelName})
 		} else if codeLine.MatchString(line) {
-			asm := strings.Split(line, "#")[0]
-			asm = strings.TrimSpace(asm)
+			asm := sanitizeAsm(line)
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
 			} else {
 				lines := functions[functionName]
+				if len(lines) == 0 {
+					functions[functionName] = append(functions[functionName], Line{Label: labelName})
+					lines = functions[functionName]
+				}
+
 				lines[len(lines)-1].Assembly = asm
 				labelName = ""
 			}
@@ -132,6 +137,14 @@ func parseAssembly(path string) (map[string][]Line, error) {
 		return nil, err
 	}
 	return functions, nil
+}
+
+func sanitizeAsm(asm string) string {
+	asm = strings.TrimSpace(asm)
+	asm = strings.Split(asm, "//")[0]
+	asm = strings.TrimSpace(asm)
+
+	return asm
 }
 
 func parseObjectDump(dump string, functions map[string][]Line) error {
@@ -161,6 +174,12 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 				}
 				binary = append(binary, s)
 			}
+
+			assembly = sanitizeAsm(assembly)
+			if strings.Contains(assembly, "nop") {
+				continue
+			}
+
 			if assembly == "" {
 				return fmt.Errorf("try to increase --insn-width of objdump")
 			} else if strings.HasPrefix(assembly, "nop") ||
