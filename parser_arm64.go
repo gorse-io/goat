@@ -93,15 +93,16 @@ func parseAssembly(path string) (map[string][]Line, error) {
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
 		} else if codeLine.MatchString(line) {
-			asm := strings.Split(line, "#")[0]
-			asm = strings.TrimSpace(asm)
+			asm := sanitizeAsm(line)
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
 			} else {
 				lines := functions[functionName]
-				if len(lines) > 0 {
-					lines[len(lines)-1].Assembly = asm
+				if len(lines) == 0 {
+					functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
+					lines = functions[functionName]
 				}
+				lines[len(lines)-1].Assembly = asm
 				labelName = ""
 			}
 		}
@@ -111,6 +112,14 @@ func parseAssembly(path string) (map[string][]Line, error) {
 		return nil, err
 	}
 	return functions, nil
+}
+
+func sanitizeAsm(asm string) string {
+	asm = strings.TrimSpace(asm)
+	asm = strings.Split(asm, "//")[0]
+	asm = strings.TrimSpace(asm)
+
+	return asm
 }
 
 func parseObjectDump(dump string, functions map[string][]Line) error {
@@ -140,6 +149,12 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 				}
 				binary = s
 			}
+
+			assembly = sanitizeAsm(assembly)
+			if strings.Contains(assembly, "nop") {
+				continue
+			}
+
 			if lineNumber >= len(functions[functionName]) {
 				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
 			}
