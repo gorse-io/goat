@@ -70,7 +70,7 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 	ast, err := cc.Parse(&cc.Config{}, nil, includePaths,
 		[]cc.Source{{Name: t.Source, Value: source}})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse source file %v with include paths %v: %w", t.Source, includePaths, err)
 	}
 	var functions []Function
 	for _, nodes := range ast.Scope {
@@ -269,6 +269,9 @@ func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]s
 
 // runCommand runs a command and extract its output.
 func runCommand(name string, arg ...string) (string, error) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Running %v\n", append([]string{name}, arg...))
+	}
 	cmd := exec.Command(name, arg...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -280,6 +283,8 @@ func runCommand(name string, arg ...string) (string, error) {
 	}
 	return string(output), nil
 }
+
+var verbose bool
 
 var command = &cobra.Command{
 	Use:  "goat source [-o output_directory]",
@@ -315,6 +320,7 @@ func init() {
 	command.PersistentFlags().StringSliceP("machine-option", "m", nil, "machine option for clang")
 	command.PersistentFlags().StringSliceP("extra-option", "e", nil, "extra option for clang")
 	command.PersistentFlags().IntP("optimize-level", "O", 0, "optimization level for clang")
+	command.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "if set, increase verbosity level")
 }
 
 func main() {
