@@ -167,7 +167,7 @@ func AVXMulTo(a, b, c []float32) {
 ## Limitations
 
 - Arguments need (for now) to be 64-bit size, meaning either a value or a pointer
-- Maximum number of 4 arguments
+- Maximum of 6 arguments
 - Generally no call statements
 
 ## Acknowledgments
