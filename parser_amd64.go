@@ -39,15 +39,15 @@ var (
 )
 
 type Line struct {
-	Label    string
+	Labels   []string
 	Assembly string
 	Binary   []string
 }
 
 func (line *Line) String() string {
 	var builder strings.Builder
-	if len(line.Label) > 0 {
-		builder.WriteString(line.Label)
+	for _, label := range line.Labels {
+		builder.WriteString(label)
 		builder.WriteString(":\n")
 	}
 	builder.WriteString("\t")
@@ -115,7 +115,13 @@ func parseAssembly(path string) (map[string][]Line, error) {
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
-			functions[functionName] = append(functions[functionName], Line{Label: labelName})
+			lines := functions[functionName]
+			if len(lines) > 0 && lines[len(lines)-1].Assembly == "" {
+				// If the last line is a label, append the label to the last line.
+				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
+			} else {
+				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
+			}
 		} else if codeLine.MatchString(line) {
 			asm := sanitizeAsm(line)
 			if labelName == "" {
@@ -123,7 +129,7 @@ func parseAssembly(path string) (map[string][]Line, error) {
 			} else {
 				lines := functions[functionName]
 				if len(lines) == 0 {
-					functions[functionName] = append(functions[functionName], Line{Label: labelName})
+					functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
 					lines = functions[functionName]
 				}
 
