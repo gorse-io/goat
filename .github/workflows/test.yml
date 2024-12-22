@@ -20,7 +20,10 @@ jobs:
       - name: Install GOAT
         run: go install .
       - name: Run GOAT
-        run: goat src/avx_mul_to.c -O3 -mavx -mfma
+        run: |
+          for file in example/*.c; do
+            goat $file -O3 -mavx -mfma
+          done
         working-directory: example
       - name: Run tests
         run: go test -v ./...
