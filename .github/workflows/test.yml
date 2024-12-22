@@ -21,7 +21,7 @@ jobs:
         run: go install .
       - name: Run GOAT
         run: |
-          for file in example/*.c; do
+          for file in src/*.c; do
             goat $file -O3 -mavx -mfma
           done
         working-directory: example
