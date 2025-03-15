@@ -51,3 +51,20 @@ jobs:
           for file in tests/amd64/*.c; do
             goat $file -O3 -mavx -mfma
           done
+  
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v4
+      - name: Install clang
+        uses: ConorMacBride/install-package@v1
+        with:
+          apt: clang libc6-dev-i386
+      - name: Install GOAT
+        run: go install .
+      - name: Run tests
+        run: |
+          goat tests/add.c -o tests/add
+          go test tests/add_test.go
