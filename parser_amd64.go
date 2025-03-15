@@ -218,7 +218,7 @@ func generateGoAssembly(path string, functions []Function) error {
 			builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param, i*8, registers[i]))
 		}
 		for _, line := range function.Lines {
-			if line.Assembly == "retq" {
+			if line.Assembly == "retq" && function.Type != "void" {
 				switch function.Type {
 				case "int64_t":
 					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", len(function.Parameters)*8))
