@@ -75,7 +75,7 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 	var functions []Function
 	for tu := ast.TranslationUnit; tu != nil; tu = tu.TranslationUnit {
 		externalDeclaration := tu.ExternalDeclaration
-		if externalDeclaration.Case == cc.ExternalDeclarationFuncDef {
+		if externalDeclaration.Position().Filename == t.Source && externalDeclaration.Case == cc.ExternalDeclarationFuncDef {
 			if function, err := t.convertFunction(externalDeclaration.FunctionDefinition); err != nil {
 				return nil, err
 			} else {
