@@ -104,6 +104,8 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 			switch function.Type {
 			case "double":
 				builder.WriteString(" float64")
+			case "float":
+				builder.WriteString(" float32")
 			case "int64_t":
 				builder.WriteString(" int64")
 			default:

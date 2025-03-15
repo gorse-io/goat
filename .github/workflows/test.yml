@@ -67,4 +67,4 @@ jobs:
       - name: Run tests
         run: |
           goat tests/add.c -o tests/add
-          go test tests/add_test.go
+          go test ./tests/add_test.go

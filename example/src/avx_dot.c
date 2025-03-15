@@ -1,7 +1,7 @@
 #include <immintrin.h>
 #include <stdint.h>
 
-void avx_dot(float *a, float *b, int64_t n, float *ret)
+float avx_dot(float *a, float *b, int64_t n)
 {
     int epoch = n / 8;
     int remain = n % 8;
@@ -31,9 +31,10 @@ void avx_dot(float *a, float *b, int64_t n, float *ret)
     const __m128 sxxx_0246 = sxx_1357_0246;
     const __m128 sxxx_1357 = _mm_shuffle_ps(sxx_1357_0246, sxx_1357_0246, 0x1);
     __m128 sxxx_01234567 = _mm_add_ss(sxxx_0246, sxxx_1357);
-    *ret = _mm_cvtss_f32(sxxx_01234567);
+    float ret = _mm_cvtss_f32(sxxx_01234567);
     for (int i = 0; i < remain; i++)
     {
-        *ret += a[i] * b[i];
+        ret += a[i] * b[i];
     }
+    return ret;
 }

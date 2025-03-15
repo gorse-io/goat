@@ -219,7 +219,14 @@ func generateGoAssembly(path string, functions []Function) error {
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "retq" {
-				builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", len(function.Parameters)*8))
+				switch function.Type {
+				case "int64_t":
+					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", len(function.Parameters)*8))
+				case "double", "float":
+					builder.WriteString(fmt.Sprintf("\tMOVSD X0, result+%d(FP)\n", len(function.Parameters)*8))
+				default:
+					return fmt.Errorf("unsupported return type: %v", function.Type)
+				}
 				builder.WriteString("\tRET\n")
 			} else {
 				builder.WriteString(line.String())
