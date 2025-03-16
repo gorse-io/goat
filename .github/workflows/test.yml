@@ -43,6 +43,5 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
-          goat src/universal.c -o .
-          go test -v ./...
-        working-directory: tests
+          goat tests/src/universal.c -o tests
+          go test -v ./tests
