@@ -24,8 +24,11 @@ jobs:
           for file in src/*.c; do
             goat $file -O3 -mavx -mfma
           done
-          cat avx_dot.s | echo
         working-directory: example
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avx_dot.s
+          path: example/avx_dot.s
       - name: Run tests
         run: go test -v ./...
         working-directory: example
