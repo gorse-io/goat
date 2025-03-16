@@ -1,0 +1,33 @@
+#include <stdint.h>
+
+int64_t add(int64_t a, int64_t b) {
+    return a + b;
+}
+
+float l2(float *a, float *b, long n)
+{
+    float sum = 0;
+    for (int i = 0; i < n; i++)
+    {
+        float diff = a[i] - b[i];
+        float sq = diff * diff;
+        sum += sq;
+    }
+    return sum;
+}
+
+void mat_mul(float *a, float *b, float *res, long d1, long d2, long d3)
+{
+    for (int i = 0; i < d1; i++)
+    {
+        for (int j = 0; j < d3; j++)
+        {
+            float sum = 0;
+            for (int k = 0; k < d2; k++)
+            {
+                sum += a[i * d2 + k] * b[k * d3 + j];
+            }
+            res[i * d3 + j] = sum;
+        }
+    }
+}

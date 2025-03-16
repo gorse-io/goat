@@ -25,37 +25,10 @@ jobs:
             goat $file -O3 -mavx -mfma
           done
         working-directory: example
-      - uses: actions/upload-artifact@v4
-        with:
-          name: avx_dot.s
-          path: example/avx_dot.s
       - name: Run tests
         run: go test -v ./...
         working-directory: example
 
-  cases:
-    name: cases
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-go@v4
-      - name: Install clang
-        uses: ConorMacBride/install-package@v1
-        with:
-          apt: clang libc6-dev-i386
-      - name: Install GOAT
-        run: go install .
-      - name: Run tests
-        run: |
-          for file in tests/*.c; do
-            goat $file -O3 -mavx -mfma
-          done
-      - name: Run amd64-only tests
-        run: |
-          for file in tests/amd64/*.c; do
-            goat $file -O3 -mavx -mfma
-          done
-  
   test:
     name: ubuntu
     runs-on: ubuntu-latest
@@ -70,5 +43,6 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
-          goat tests/add.c -o tests/add
-          go test ./tests/add/
+          goat src/universal.cpp -o .
+          go test -v ./...
+        working-directory: tests
