@@ -18,9 +18,8 @@ jobs:
       - run:
           name: Run tests
           command: |
-            for file in tests/*.c; do
-              goat $file -O3 -mavx -mfma
-            done
+            goat tests/src/universal.c -o tests
+            go test -v ./tests
 
 workflows:
   test:
