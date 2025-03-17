@@ -9,9 +9,7 @@ func AVXDot(a, b []float32) float32 {
 	if len(a) != len(b) {
 		panic("floats: slice lengths do not match")
 	}
-	var c float32
-	avx_dot(unsafe.Pointer(&a[0]), unsafe.Pointer(&b[0]), unsafe.Pointer(uintptr(len(a))), unsafe.Pointer(&c))
-	return c
+	return avx_dot(unsafe.Pointer(&a[0]), unsafe.Pointer(&b[0]), unsafe.Pointer(uintptr(len(a))))
 }
 
 func TestDot(t *testing.T) {

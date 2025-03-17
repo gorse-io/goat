@@ -29,8 +29,8 @@ jobs:
         run: go test -v ./...
         working-directory: example
 
-  cases:
-    name: cases
+  ubuntu:
+    name: ubuntu
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -43,11 +43,5 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
-          for file in tests/*.c; do
-            goat $file -O3 -mavx -mfma
-          done
-      - name: Run amd64-only tests
-        run: |
-          for file in tests/amd64/*.c; do
-            goat $file -O3 -mavx -mfma
-          done
+          goat tests/src/universal.c -o tests
+          go test -v ./tests

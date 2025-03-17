@@ -73,17 +73,10 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 		return nil, fmt.Errorf("failed to parse source file %v with include paths %v: %w", t.Source, includePaths, err)
 	}
 	var functions []Function
-	for _, nodes := range ast.Scope {
-		if len(nodes) != 1 || nodes[0].Position().Filename != t.Source {
-			continue
-		}
-		node := nodes[0]
-		if declarator, ok := node.(*cc.Declarator); ok {
-			funcIdent := declarator.DirectDeclarator
-			if funcIdent.Case != cc.DirectDeclaratorFuncParam {
-				continue
-			}
-			if function, err := t.convertFunction(funcIdent); err != nil {
+	for tu := ast.TranslationUnit; tu != nil; tu = tu.TranslationUnit {
+		externalDeclaration := tu.ExternalDeclaration
+		if externalDeclaration.Position().Filename == t.Source && externalDeclaration.Case == cc.ExternalDeclarationFuncDef {
+			if function, err := t.convertFunction(externalDeclaration.FunctionDefinition); err != nil {
 				return nil, err
 			} else {
 				functions = append(functions, function)
@@ -105,8 +98,21 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 	builder.WriteString("import \"unsafe\"\n")
 	for _, function := range functions {
 		builder.WriteString("\n//go:noescape\n")
-		builder.WriteString(fmt.Sprintf("func %v(%s unsafe.Pointer)\n",
+		builder.WriteString(fmt.Sprintf("func %v(%s unsafe.Pointer)",
 			function.Name, strings.Join(function.Parameters, ", ")))
+		if function.Type != "void" {
+			switch function.Type {
+			case "double":
+				builder.WriteString(" (result float64)")
+			case "float":
+				builder.WriteString(" (result float32)")
+			case "int64_t", "long":
+				builder.WriteString(" (result int64)")
+			default:
+				return fmt.Errorf("unsupported return type: %v", function.Type)
+			}
+		}
+		builder.WriteRune('\n')
 	}
 
 	// write file
@@ -228,19 +234,32 @@ func listIncludePaths() ([]string, error) {
 type Function struct {
 	Name       string
 	Position   int
+	Type       string
 	Parameters []string
 	Lines      []Line
 }
 
 // convertFunction extracts the function definition from cc.DirectDeclarator.
-func (t *TranslateUnit) convertFunction(declarator *cc.DirectDeclarator) (Function, error) {
-	params, err := t.convertFunctionParameters(declarator.ParameterTypeList.ParameterList)
+func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinition) (Function, error) {
+	// parse return type
+	declarationSpecifiers := functionDefinition.DeclarationSpecifiers
+	if declarationSpecifiers.Case != cc.DeclarationSpecifiersTypeSpec {
+		return Function{}, fmt.Errorf("invalid function return type: %v", declarationSpecifiers.Case)
+	}
+	returnType := declarationSpecifiers.TypeSpecifier.Token.Value
+	// parse parameters
+	directDeclarator := functionDefinition.Declarator.DirectDeclarator
+	if directDeclarator.Case != cc.DirectDeclaratorFuncParam {
+		return Function{}, fmt.Errorf("invalid function parameter: %v", directDeclarator.Case)
+	}
+	params, err := t.convertFunctionParameters(directDeclarator.ParameterTypeList.ParameterList)
 	if err != nil {
 		return Function{}, err
 	}
 	return Function{
-		Name:       declarator.DirectDeclarator.Token.Value.String(),
-		Position:   declarator.Position().Line,
+		Name:       directDeclarator.DirectDeclarator.Token.Value.String(),
+		Position:   directDeclarator.Position().Line,
+		Type:       returnType.String(),
 		Parameters: params,
 	}, nil
 }
@@ -253,7 +272,7 @@ func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]s
 	isPointer := declaration.Declarator.Pointer != nil
 	if !isPointer && !supportedTypes.Contains(paramType.String()) {
 		position := declaration.Position()
-		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v\n",
+		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v",
 			position.Filename, position.Line+t.Offset, position.Column, paramType)
 	}
 	paramNames := []string{paramName.String()}
