@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test-ubuntu-latest:
+  ubuntu:
     name: ubuntu-latest
     runs-on: ubuntu-latest
     steps:
@@ -24,7 +24,7 @@ jobs:
           goat tests/src/universal.c -o tests
           go test -v ./tests
 
-  test-ubuntu-24.04-arm:
+  arm:
     name: ubuntu-24.04-arm
     runs-on: ubuntu-24.04-arm
     steps:
