@@ -221,7 +221,7 @@ func generateGoAssembly(path string, functions []Function) error {
 		for _, line := range function.Lines {
 			if line.Assembly == "retq" && function.Type != "void" {
 				switch function.Type {
-				case "int64_t":
+				case "int64_t", "long":
 					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", len(function.Parameters)*8))
 				case "double":
 					builder.WriteString(fmt.Sprintf("\tMOVSD X0, result+%d(FP)\n", len(function.Parameters)*8))

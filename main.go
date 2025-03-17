@@ -106,7 +106,7 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 				builder.WriteString(" (result float64)")
 			case "float":
 				builder.WriteString(" (result float32)")
-			case "int64_t":
+			case "int64_t", "long":
 				builder.WriteString(" (result int64)")
 			default:
 				return fmt.Errorf("unsupported return type: %v", function.Type)
