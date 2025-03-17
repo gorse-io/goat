@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  example:
-    name: example
+  ubuntu:
+    name: ubuntu-latest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -19,26 +19,21 @@ jobs:
           apt: clang libc6-dev-i386
       - name: Install GOAT
         run: go install .
-      - name: Run GOAT
-        run: |
-          for file in src/*.c; do
-            goat $file -O3 -mavx -mfma
-          done
-        working-directory: example
       - name: Run tests
-        run: go test -v ./...
-        working-directory: example
+        run: |
+          goat tests/src/universal.c -o tests
+          go test -v ./tests
 
-  ubuntu:
-    name: ubuntu
-    runs-on: ubuntu-latest
+  arm:
+    name: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v4
       - name: Install clang
         uses: ConorMacBride/install-package@v1
         with:
-          apt: clang libc6-dev-i386
+          apt: clang
       - name: Install GOAT
         run: go install .
       - name: Run tests
