@@ -216,7 +216,7 @@ func generateGoAssembly(path string, functions []Function) error {
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
 		for i, param := range function.Parameters {
-			builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param, i*8, registers[i]))
+			builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "retq" && function.Type != "void" {

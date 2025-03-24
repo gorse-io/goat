@@ -98,8 +98,20 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 	builder.WriteString("import \"unsafe\"\n")
 	for _, function := range functions {
 		builder.WriteString("\n//go:noescape\n")
-		builder.WriteString(fmt.Sprintf("func %v(%s unsafe.Pointer)",
-			function.Name, strings.Join(function.Parameters, ", ")))
+		builder.WriteString("func ")
+		builder.WriteString(function.Name)
+		builder.WriteRune('(')
+		for i, param := range function.Parameters {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString(param.Name)
+			if i+1 == len(function.Parameters) || function.Parameters[i+1].String() != param.String() {
+				builder.WriteRune(' ')
+				builder.WriteString(param.String())
+			}
+		}
+		builder.WriteRune(')')
 		if function.Type != "void" {
 			switch function.Type {
 			case "double":
@@ -231,11 +243,39 @@ func listIncludePaths() ([]string, error) {
 	return paths, nil
 }
 
+type ParameterType struct {
+	Type    string
+	Pointer bool
+}
+
+func (p ParameterType) String() string {
+	if p.Pointer {
+		return "unsafe.Pointer"
+	}
+	switch p.Type {
+	case "int64_t", "long":
+		return "int64"
+	case "double":
+		return "float64"
+	case "float":
+		return "float32"
+	default:
+		_, _ = fmt.Fprintln(os.Stderr, "unsupported param type:", p.Type)
+		os.Exit(1)
+		return ""
+	}
+}
+
+type Parameter struct {
+	Name string
+	ParameterType
+}
+
 type Function struct {
 	Name       string
 	Position   int
 	Type       string
-	Parameters []string
+	Parameters []Parameter
 	Lines      []Line
 }
 
@@ -265,7 +305,7 @@ func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinitio
 }
 
 // convertFunctionParameters extracts function parameters from cc.ParameterList.
-func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]string, error) {
+func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]Parameter, error) {
 	declaration := params.ParameterDeclaration
 	paramName := declaration.Declarator.DirectDeclarator.Token.Value
 	paramType := declaration.DeclarationSpecifiers.TypeSpecifier.Token.Value
@@ -275,7 +315,13 @@ func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]s
 		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v",
 			position.Filename, position.Line+t.Offset, position.Column, paramType)
 	}
-	paramNames := []string{paramName.String()}
+	paramNames := []Parameter{{
+		Name: paramName.String(),
+		ParameterType: ParameterType{
+			Type:    paramType.String(),
+			Pointer: isPointer,
+		},
+	}}
 	if params.ParameterList != nil {
 		if nextParamNames, err := t.convertFunctionParameters(params.ParameterList); err != nil {
 			return nil, err
