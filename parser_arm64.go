@@ -93,7 +93,7 @@ func parseAssembly(path string) (map[string][]Line, error) {
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
 		} else if codeLine.MatchString(line) {
-			asm := strings.Split(line, "#")[0]
+			asm := strings.Split(line, "//")[0]
 			asm = strings.TrimSpace(asm)
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
