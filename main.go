@@ -29,7 +29,7 @@ import (
 	"modernc.org/cc/v3"
 )
 
-var supportedTypes = mapset.NewSet("int64_t", "long", "float")
+var supportedTypes = mapset.NewSet("int64_t", "long", "float", "_Bool")
 
 type TranslateUnit struct {
 	Source     string
@@ -120,6 +120,8 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 		builder.WriteRune(')')
 		if function.Type != "void" {
 			switch function.Type {
+			case "_Bool":
+				builder.WriteString(" (result bool)")
 			case "double":
 				builder.WriteString(" (result float64)")
 			case "float":
@@ -259,6 +261,8 @@ func (p ParameterType) String() string {
 		return "unsafe.Pointer"
 	}
 	switch p.Type {
+	case "_Bool":
+		return "bool"
 	case "int64_t", "long":
 		return "int64"
 	case "double":

@@ -39,3 +39,8 @@ float mul2(float a)
 {
     return add_inline(a, a);
 }
+
+_Bool _not(_Bool a)
+{
+    return !a;
+}
