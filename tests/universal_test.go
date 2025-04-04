@@ -28,3 +28,7 @@ func TestMatMul(t *testing.T) {
 	mat_mul(unsafe.Pointer(&a[0]), unsafe.Pointer(&b[0]), unsafe.Pointer(&res[0]), 2, 2, 2)
 	assert.Equal(t, []float32{19, 22, 43, 50}, res)
 }
+
+func TestMul2(t *testing.T) {
+	assert.Equal(t, float32(4), mul2(2))
+}
