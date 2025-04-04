@@ -29,3 +29,13 @@ void mat_mul(float *a, float *b, float *res, long d1, long d2, long d3)
         }
     }
 }
+
+inline float add_inline(float a, float b)
+{
+    return a + b;
+}
+
+float mul2(float a)
+{
+    return add_inline(a, a);
+}
