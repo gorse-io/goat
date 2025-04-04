@@ -29,7 +29,7 @@ import (
 	"modernc.org/cc/v3"
 )
 
-var supportedTypes = mapset.NewSet("int64_t", "long")
+var supportedTypes = mapset.NewSet("int64_t", "long", "float")
 
 type TranslateUnit struct {
 	Source     string
@@ -77,6 +77,11 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 	for tu := ast.TranslationUnit; tu != nil; tu = tu.TranslationUnit {
 		externalDeclaration := tu.ExternalDeclaration
 		if externalDeclaration.Position().Filename == t.Source && externalDeclaration.Case == cc.ExternalDeclarationFuncDef {
+			functionSpecifier := externalDeclaration.FunctionDefinition.DeclarationSpecifiers.FunctionSpecifier
+			if functionSpecifier != nil && functionSpecifier.Case == cc.FunctionSpecifierInline {
+				// ignore inline functions
+				continue
+			}
 			if function, err := t.convertFunction(externalDeclaration.FunctionDefinition); err != nil {
 				return nil, err
 			} else {
