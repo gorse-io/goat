@@ -169,7 +169,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			if line.Assembly == "ret" {
 				if function.Type != "void" {
 					switch function.Type {
-					case "int64_t", "long":
+					case "int64_t", "long", "_Bool":
 						builder.WriteString(fmt.Sprintf("\tMOVD R0, result+%d(FP)\n", len(function.Parameters)*8))
 					case "double":
 						builder.WriteString(fmt.Sprintf("\tFMOVD F0, result+%d(FP)\n", len(function.Parameters)*8))

@@ -32,3 +32,7 @@ func TestMatMul(t *testing.T) {
 func TestMul2(t *testing.T) {
 	assert.Equal(t, float32(4), mul2(2))
 }
+
+func TestNot(t *testing.T) {
+	assert.False(t, _not(true))
+}
