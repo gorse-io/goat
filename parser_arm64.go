@@ -163,6 +163,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
 		for i, param := range function.Parameters {
+			if i >= len(registers) {
+				return fmt.Errorf("too many parameters: %v", function.Name)
+			}
 			builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
 		}
 		for _, line := range function.Lines {

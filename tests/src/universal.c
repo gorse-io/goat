@@ -44,3 +44,8 @@ _Bool _not(_Bool a)
 {
     return !a;
 }
+
+long sum(long x1, long x2, long x3, long x4, long x5, long x6, long x7, long x8)
+{
+    return x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8;
+}
