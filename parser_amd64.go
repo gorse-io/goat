@@ -217,28 +217,41 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
-		registerIndex, xmmRegisterIndex := 0, 0
+		registerIndex, xmmRegisterIndex, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
-		for i, param := range function.Parameters {
+		for _, param := range function.Parameters {
+			sz := 8
+			if param.Pointer {
+				sz = 8
+			} else {
+				sz = supportedTypes[param.Type]
+			}
+			if offset%sz != 0 {
+				offset += sz - offset%sz
+			}
 			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
 				if xmmRegisterIndex < len(xmmRegisters) {
 					if param.Type == "double" {
-						builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[xmmRegisterIndex]))
+						builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[xmmRegisterIndex]))
+						builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
 					}
 					xmmRegisterIndex++
 				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: i * 8, B: param})
+					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			} else {
 				if registerIndex < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[registerIndex]))
+					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, offset, registers[registerIndex]))
 					registerIndex++
 				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: i * 8, B: param})
+					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			}
+			offset += sz
+		}
+		if offset%8 != 0 {
+			offset += 8 - offset%8
 		}
 		if len(stack) > 0 {
 			for i := len(stack) - 1; i >= 0; i-- {
@@ -255,11 +268,11 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				switch function.Type {
 				case "int64_t", "long", "_Bool":
-					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", len(function.Parameters)*8))
+					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", offset))
 				case "double":
-					builder.WriteString(fmt.Sprintf("\tMOVSD X0, result+%d(FP)\n", len(function.Parameters)*8))
+					builder.WriteString(fmt.Sprintf("\tMOVSD X0, result+%d(FP)\n", offset))
 				case "float":
-					builder.WriteString(fmt.Sprintf("\tMOVSS X0, result+%d(FP)\n", len(function.Parameters)*8))
+					builder.WriteString(fmt.Sprintf("\tMOVSS X0, result+%d(FP)\n", offset))
 				default:
 					return fmt.Errorf("unsupported return type: %v", function.Type)
 				}
