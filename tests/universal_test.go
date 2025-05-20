@@ -36,3 +36,8 @@ func TestMul2(t *testing.T) {
 func TestNot(t *testing.T) {
 	assert.False(t, _not(true))
 }
+
+func TestSum(t *testing.T) {
+	b := sum(1, 2, 3, 4, 5, 6, 7, 8)
+	assert.Equal(t, int64(36), b)
+}
