@@ -217,9 +217,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
 		for i, param := range function.Parameters {
-			if param.Type == "double" {
+			if !param.Pointer && param.Type == "double" {
 				builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[i]))
-			} else if param.Type == "float" {
+			} else if !param.Pointer && param.Type == "float" {
 				builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[i]))
 			} else {
 				builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
