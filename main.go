@@ -29,7 +29,7 @@ import (
 	"modernc.org/cc/v3"
 )
 
-var supportedTypes = mapset.NewSet("int64_t", "long", "float", "_Bool")
+var supportedTypes = mapset.NewSet("int64_t", "long", "float", "double", "_Bool")
 
 type TranslateUnit struct {
 	Source     string
