@@ -35,7 +35,8 @@ var (
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
+	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
+	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 )
 
 type Line struct {
@@ -162,11 +163,27 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
+		registerCount, fpRegisterCount := 0, 0
 		for i, param := range function.Parameters {
-			if i >= len(registers) {
-				return fmt.Errorf("too many parameters: %v", function.Name)
+			if !param.Pointer && (param.Type == "float" || param.Type == "double") {
+				if fpRegisterCount < len(fpRegisters) {
+					if param.Type == "float" {
+						builder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, i*8, fpRegisters[fpRegisterCount]))
+					} else {
+						builder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, i*8, fpRegisters[fpRegisterCount]))
+					}
+					fpRegisterCount++
+				} else {
+					return fmt.Errorf("too many parameters: %v", function.Name)
+				}
+			} else {
+				if registerCount < len(registers) {
+					builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, i*8, registers[registerCount]))
+					registerCount++
+				} else {
+					return fmt.Errorf("too many parameters: %v", function.Name)
+				}
 			}
-			builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "ret" {
