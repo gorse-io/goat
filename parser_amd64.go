@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	"github.com/klauspost/asmfmt"
+	"github.com/samber/lo"
 )
 
 const buildTags = "//go:build !noasm && amd64\n"
@@ -36,7 +37,7 @@ var (
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
 	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
-	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5"}
+	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
 )
 
 type Line struct {
@@ -216,27 +217,39 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
+		registerIndex, xmmRegisterIndex := 0, 0
+		var stack []lo.Tuple2[int, Parameter]
 		for i, param := range function.Parameters {
-			if i < len(registers) {
-				if !param.Pointer && param.Type == "double" {
-					builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[i]))
-				} else if !param.Pointer && param.Type == "float" {
-					builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[i]))
+			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
+				if xmmRegisterIndex < len(xmmRegisters) {
+					if param.Type == "double" {
+						builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[xmmRegisterIndex]))
+					} else {
+						builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[xmmRegisterIndex]))
+					}
+					xmmRegisterIndex++
 				} else {
-					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
+					stack = append(stack, lo.Tuple2[int, Parameter]{A: i * 8, B: param})
 				}
 			} else {
-				for j := len(function.Parameters) - 1; j >= len(registers); j-- {
-					builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", function.Parameters[j].Name, j*8))
+				if registerIndex < len(registers) {
+					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[registerIndex]))
+					registerIndex++
+				} else {
+					stack = append(stack, lo.Tuple2[int, Parameter]{A: i * 8, B: param})
 				}
-				builder.WriteString("\tPUSHQ $0\n")
-				break
 			}
+		}
+		if len(stack) > 0 {
+			for i := len(stack) - 1; i >= 0; i-- {
+				builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", stack[i].B.Name, stack[i].A))
+			}
+			builder.WriteString("\tPUSHQ $0\n")
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "retq" && function.Type != "void" {
-				if len(function.Parameters) > len(registers) {
-					for j := len(function.Parameters); j >= len(registers); j-- {
+				if len(stack) > 0 {
+					for i := 0; i <= len(stack); i++ {
 						builder.WriteString("\tPOPQ DI\n")
 					}
 				}
