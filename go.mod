@@ -3,7 +3,6 @@ module github.com/gorse-io/goat
 go 1.20
 
 require (
-	github.com/deckarep/golang-set/v2 v2.3.0
 	github.com/klauspost/asmfmt v1.3.2
 	github.com/samber/lo v1.50.0
 	github.com/spf13/cobra v1.7.0

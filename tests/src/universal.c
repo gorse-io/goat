@@ -51,7 +51,7 @@ long sum(long x1, long x2, long x3, long x4, long x5, long x6, long x7, long x8)
     return x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8;
 }
 
-double mul(double v1, double v2, double v3, double v4, double v5, double v6, long v7, double v8)
+double mul(float v1, double v2, float v3, float v4, double v5, double v6, long v7, double v8)
 {
     return v1 * v2 * v3 * v4 * v5 * v6 * v7 * v8;
 }

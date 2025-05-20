@@ -163,14 +163,23 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
-		registerCount, fpRegisterCount := 0, 0
-		for i, param := range function.Parameters {
+		registerCount, fpRegisterCount, offset := 0, 0, 0
+		for _, param := range function.Parameters {
+			sz := 8
+			if param.Pointer {
+				sz = 8
+			} else {
+				sz = supportedTypes[param.Type]
+			}
+			if offset%sz != 0 {
+				offset += sz - offset%sz
+			}
 			if !param.Pointer && (param.Type == "float" || param.Type == "double") {
 				if fpRegisterCount < len(fpRegisters) {
 					if param.Type == "float" {
-						builder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, i*8, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, i*8, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					}
 					fpRegisterCount++
 				} else {
@@ -178,23 +187,27 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 			} else {
 				if registerCount < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, i*8, registers[registerCount]))
+					builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
 					registerCount++
 				} else {
 					return fmt.Errorf("too many parameters: %v", function.Name)
 				}
 			}
+			offset += sz
+		}
+		if offset%8 != 0 {
+			offset += 8 - offset%8
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "ret" {
 				if function.Type != "void" {
 					switch function.Type {
 					case "int64_t", "long", "_Bool":
-						builder.WriteString(fmt.Sprintf("\tMOVD R0, result+%d(FP)\n", len(function.Parameters)*8))
+						builder.WriteString(fmt.Sprintf("\tMOVD R0, result+%d(FP)\n", offset))
 					case "double":
-						builder.WriteString(fmt.Sprintf("\tFMOVD F0, result+%d(FP)\n", len(function.Parameters)*8))
+						builder.WriteString(fmt.Sprintf("\tFMOVD F0, result+%d(FP)\n", offset))
 					case "float":
-						builder.WriteString(fmt.Sprintf("\tFMOVS F0, result+%d(FP)\n", len(function.Parameters)*8))
+						builder.WriteString(fmt.Sprintf("\tFMOVS F0, result+%d(FP)\n", offset))
 					default:
 						return fmt.Errorf("unsupported return type: %v", function.Type)
 					}
