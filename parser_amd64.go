@@ -35,7 +35,8 @@ var (
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers = []string{"DI", "SI", "DX", "CX", "R8", "R9", "R10", "R11"}
+	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
+	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5"}
 )
 
 type Line struct {
@@ -216,10 +217,29 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
 		for i, param := range function.Parameters {
-			builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
+			if i < len(registers) {
+				if !param.Pointer && param.Type == "double" {
+					builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[i]))
+				} else if !param.Pointer && param.Type == "float" {
+					builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, i*8, xmmRegisters[i]))
+				} else {
+					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, i*8, registers[i]))
+				}
+			} else {
+				for j := len(function.Parameters) - 1; j >= len(registers); j-- {
+					builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", function.Parameters[j].Name, j*8))
+				}
+				builder.WriteString("\tPUSHQ $0\n")
+				break
+			}
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "retq" && function.Type != "void" {
+				if len(function.Parameters) > len(registers) {
+					for j := len(function.Parameters); j >= len(registers); j-- {
+						builder.WriteString("\tPOPQ DI\n")
+					}
+				}
 				switch function.Type {
 				case "int64_t", "long", "_Bool":
 					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", len(function.Parameters)*8))
