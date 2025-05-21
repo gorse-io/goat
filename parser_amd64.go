@@ -260,21 +260,23 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			builder.WriteString("\tPUSHQ $0\n")
 		}
 		for _, line := range function.Lines {
-			if line.Assembly == "retq" && function.Type != "void" {
+			if line.Assembly == "retq" {
 				if len(stack) > 0 {
 					for i := 0; i <= len(stack); i++ {
 						builder.WriteString("\tPOPQ DI\n")
 					}
 				}
-				switch function.Type {
-				case "int64_t", "long", "_Bool":
-					builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", offset))
-				case "double":
-					builder.WriteString(fmt.Sprintf("\tMOVSD X0, result+%d(FP)\n", offset))
-				case "float":
-					builder.WriteString(fmt.Sprintf("\tMOVSS X0, result+%d(FP)\n", offset))
-				default:
-					return fmt.Errorf("unsupported return type: %v", function.Type)
+				if function.Type != "void" {
+					switch function.Type {
+					case "int64_t", "long", "_Bool":
+						builder.WriteString(fmt.Sprintf("\tMOVQ AX, result+%d(FP)\n", offset))
+					case "double":
+						builder.WriteString(fmt.Sprintf("\tMOVSD X0, result+%d(FP)\n", offset))
+					case "float":
+						builder.WriteString(fmt.Sprintf("\tMOVSS X0, result+%d(FP)\n", offset))
+					default:
+						return fmt.Errorf("unsupported return type: %v", function.Type)
+					}
 				}
 				builder.WriteString("\tRET\n")
 			} else {
