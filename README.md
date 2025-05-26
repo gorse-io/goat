@@ -5,19 +5,38 @@
 
 Go assembly transpiler for C programming languages. It help to utilize optimization from C compiler in Go projects. For example, generate SIMD vectorized functions for Go (refer to [How to Use AVX512 in Golang](https://gorse.io/posts/avx512-in-golang.html)).
 
-## Install
+## Prerequisites
 
-1. Install prerequisites
+Ubuntu is the recommended operating system for GoAT. The following packages are required:
+
+- Ubuntu for AMD64:
 
 ```bash
 sudo apt update
 sudo apt install clang libc6-dev-i386
 ```
 
-2. Install GoAT
+- Ubuntu for ARM64:
+
+```bash
+sudo apt update
+sudo apt install clang
+```
+
+Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.
+
+## Install
+
+Install the latest version:
 
 ```bash
 go install github.com/gorse-io/goat@latest
+```
+
+Or install the latest development version:
+
+```bash
+go install github.com/gorse-io/goat@main
 ```
 
 ## Usage
@@ -162,9 +181,9 @@ func AVXMulTo(a, b, c []float32) {
 
 ## Limitations
 
-- Arguments need (for now) to be 64-bit size, meaning either a value or a pointer
-- Maximum of 6 arguments
-- Generally no call statements
+- No call statements except for inline functions.
+- Arguments must be `int64_t`, `long`, `float`, `double`, `_Bool` or pointer.
+
 
 ## Acknowledgments
 
