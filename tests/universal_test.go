@@ -38,7 +38,7 @@ func TestNot(t *testing.T) {
 }
 
 func TestSum(t *testing.T) {
-	assert.Equal(t, int64(36), sum(1, 2, 3, 4, 5, 6, 7, 8))
+	assert.Equal(t, int64(55), sum(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 }
 
 func TestMul(t *testing.T) {

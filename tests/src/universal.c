@@ -46,9 +46,9 @@ _Bool _not(_Bool a)
     return !a;
 }
 
-long sum(long x1, long x2, long x3, long x4, long x5, long x6, long x7, long x8)
+long sum(long x1, long x2, long x3, long x4, long x5, long x6, long x7, long x8, long x9, long x10)
 {
-    return x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8;
+    return x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10;
 }
 
 double mul(float v1, double v2, float v3, float v4, double v5, double v6, long v7, double v8)

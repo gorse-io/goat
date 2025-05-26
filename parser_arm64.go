@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	"github.com/klauspost/asmfmt"
+	"github.com/samber/lo"
 )
 
 const buildTags = "//go:build !noasm && arm64\n"
@@ -164,6 +165,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, returnSize+len(function.Parameters)*8))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
+		var stack []lo.Tuple2[int, Parameter]
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
@@ -183,20 +185,28 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					}
 					fpRegisterCount++
 				} else {
-					return fmt.Errorf("too many parameters: %v", function.Name)
+					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			} else {
 				if registerCount < len(registers) {
 					builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
 					registerCount++
 				} else {
-					return fmt.Errorf("too many parameters: %v", function.Name)
+					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			}
 			offset += sz
 		}
 		if offset%8 != 0 {
 			offset += 8 - offset%8
+		}
+		if len(stack) > 0 {
+			stackOffset := 0
+			for i := 0; i < len(stack); i++ {
+				builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R8\n", stack[i].B.Name, stack[i].A))
+				builder.WriteString(fmt.Sprintf("\tMOVD R8, %d(RSP)\n", stackOffset))
+				stackOffset += supportedTypes[stack[i].B.Type]
+			}
 		}
 		for _, line := range function.Lines {
 			if line.Assembly == "ret" {
