@@ -323,7 +323,12 @@ func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinitio
 func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]Parameter, error) {
 	declaration := params.ParameterDeclaration
 	paramName := declaration.Declarator.DirectDeclarator.Token.Value
-	paramType := declaration.DeclarationSpecifiers.TypeSpecifier.Token.Value
+	var paramType cc.StringID
+	if declaration.DeclarationSpecifiers.Case == cc.DeclarationSpecifiersTypeQual {
+		paramType = declaration.DeclarationSpecifiers.DeclarationSpecifiers.TypeSpecifier.Token.Value
+	} else {
+		paramType = declaration.DeclarationSpecifiers.TypeSpecifier.Token.Value
+	}
 	isPointer := declaration.Declarator.Pointer != nil
 	if _, ok := supportedTypes[paramType.String()]; !ok && !isPointer {
 		position := declaration.Position()
