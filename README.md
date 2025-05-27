@@ -68,7 +68,7 @@ void add(float *a, float *b, float *result, long n) {
 You can use GoAT to transpile this C function to Go assembly code with the following command:
 
 ```bash
-goat src/add.c -o -O3 -mavx
+goat src/add.c -o . -O3 -mavx
 ```
 
 > [!WARNING]
