@@ -3,7 +3,7 @@ long add(long a, long b)
     return a + b;
 }
 
-float l2(float *a, float *b, long n)
+float l2(const float *a, const float *b, long n)
 {
     float sum = 0;
     for (int i = 0; i < n; i++)
