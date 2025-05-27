@@ -1,5 +1,7 @@
 # GoAT
 
+<img width=160 src="assets/goat.png"/>
+
 [![test](https://github.com/gorse-io/goat/actions/workflows/test.yml/badge.svg)](https://github.com/gorse-io/goat/actions/workflows/test.yml)
 ![GitHub release (with filter)](https://img.shields.io/github/v/release/gorse-io/goat)
 
