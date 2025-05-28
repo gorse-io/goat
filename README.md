@@ -23,6 +23,12 @@ sudo apt update
 sudo apt install clang
 ```
 
+- macOS (Apple Silicon):
+
+```bash
+brew install llvm binutils
+```
+
 Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.
 
 ## Install

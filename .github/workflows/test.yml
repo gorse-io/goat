@@ -40,3 +40,14 @@ jobs:
         run: |
           goat tests/src/universal.c -o tests
           go test -v ./tests
+
+  macos:
+    name: macos-latest
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v4
+      - name: Install clang
+        run: brew install llvm binutils
+      - name: Install GOAT
+        run: go install .
