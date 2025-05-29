@@ -25,7 +25,10 @@ import (
 	"github.com/samber/lo"
 )
 
-const buildTags = "//go:build !noasm && amd64\n"
+const (
+	buildTags   = "//go:build !noasm && amd64\n"
+	buildTarget = "amd64-linux-gnu"
+)
 
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
