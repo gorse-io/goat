@@ -49,7 +49,7 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: stable
-      - name: Install clang
+      - name: Install clang and binutils
         run: brew install llvm binutils
       - name: Install GOAT
         run: go install .
@@ -57,3 +57,5 @@ jobs:
         run: |
           goat tests/src/universal.c -o tests
           go test -v ./tests
+        env:
+          PATH: /opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/binutils/bin:$PATH
