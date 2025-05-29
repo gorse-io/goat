@@ -53,3 +53,7 @@ jobs:
         run: brew install llvm binutils
       - name: Install GOAT
         run: go install .
+      - name: Run tests
+        run: |
+          goat tests/src/universal.c -o tests
+          go test -v ./tests

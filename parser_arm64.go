@@ -32,6 +32,7 @@ var (
 	nameLine      = regexp.MustCompile(`^\w+:.+$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	jmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
@@ -223,6 +224,16 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					}
 				}
 				builder.WriteString("\tRET\n")
+			} else if jmpLine.MatchString(line.Assembly) {
+				splits := strings.Split(line.Assembly, "\t")
+				instruction := strings.Map(func(r rune) rune {
+					if r == '.' {
+						return -1
+					}
+					return unicode.ToUpper(r)
+				}, splits[0])
+				label := splits[1][1:]
+				builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
 			} else {
 				builder.WriteString(line.String())
 			}
