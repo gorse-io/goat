@@ -36,10 +36,14 @@ jobs:
           apt: clang
       - name: Install GOAT
         run: go install .
+      - name: Generate code
+        run: goat tests/src/universal.c -o tests
+      - name: Upload generated code
+        uses: actions/upload-artifact@v3
+        with:
+          path: tests
       - name: Run tests
-        run: |
-          goat tests/src/universal.c -o tests
-          go test -v ./tests
+        run: go test -v ./tests
 
   macos:
     name: macos-latest
@@ -50,9 +54,10 @@ jobs:
         with:
           go-version: stable
       - name: Install clang and binutils
-        run: brew install llvm binutils
-      - name: Add LLVM and binutils to PATH
-        run: echo "export PATH=/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/binutils/bin:$PATH" >> $GITHUB_ENV
+        run: |
+          brew install llvm binutils
+          ln -sf /usr/homebrew/opt/llvm/bin/clang /usr/local/bin/clang
+          ln -sf /usr/homebrew/opt/binutils/bin/objdump /usr/local/bin/objdump
       - name: Install GOAT
         run: go install .
       - name: Run tests
