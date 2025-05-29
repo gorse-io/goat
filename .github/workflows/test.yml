@@ -40,3 +40,19 @@ jobs:
         run: |
           goat tests/src/universal.c -o tests
           go test -v ./tests
+
+  windows:
+    name: windows-latest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v4
+      - name: Install clang
+        uses: ConorMacBride/install-package@v1
+        with:
+          choco: llvm
+      - name: Install GOAT
+        run: go install .
+      - name: Run tests
+        run: |
+          clang --version
