@@ -39,7 +39,7 @@ jobs:
       - name: Generate code
         run: goat tests/src/universal.c -o tests
       - name: Upload generated code
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           path: tests
       - name: Run tests
@@ -62,5 +62,7 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
+          export PATH=/usr/lhomebrew/opt/llvm/bin:$PATH
+          export PATH=/usr/homebrew/opt/binutils/bin:$PATH
           goat tests/src/universal.c -o tests
           go test -v ./tests
