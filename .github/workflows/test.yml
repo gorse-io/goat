@@ -55,8 +55,8 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
-          export PATH=/usr/lhomebrew/opt/llvm/bin:$PATH
-          export PATH=/usr/homebrew/opt/binutils/bin:$PATH
+          export PATH=/opt/lhomebrew/opt/llvm/bin:$PATH
+          export PATH=/opt/homebrew/opt/binutils/bin:$PATH
           echo $PATH
           goat tests/src/universal.c -o tests
           go test -v ./tests
