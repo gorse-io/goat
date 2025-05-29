@@ -31,10 +31,6 @@ brew install llvm binutils
 # Override the default clang and objdump to use Homebrew's version
 export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 export PATH="/opt/homebrew/opt/binutils/bin:$PATH"
-
-# Or add to PATH permanently
-echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> /Users/runner/.bash_profile
-echo 'export PATH="/opt/homebrew/opt/binutils/bin:$PATH"' >> /Users/runner/.bash_profile
 ```
 
 Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.

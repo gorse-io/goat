@@ -51,11 +51,11 @@ jobs:
           go-version: stable
       - name: Install clang and binutils
         run: brew install llvm binutils
+      - name: Add LLVM and binutils to PATH
+        run: echo "export PATH=/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/binutils/bin:$PATH" >> $GITHUB_ENV
       - name: Install GOAT
         run: go install .
       - name: Run tests
         run: |
           goat tests/src/universal.c -o tests
           go test -v ./tests
-        env:
-          PATH: /opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/binutils/bin:$PATH
