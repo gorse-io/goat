@@ -23,6 +23,16 @@ sudo apt update
 sudo apt install clang
 ```
 
+- macOS (Apple Silicon):
+
+```bash
+brew install llvm binutils
+
+# Override the default clang and objdump to use Homebrew's version
+export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+export PATH="/opt/homebrew/opt/binutils/bin:$PATH"
+```
+
 Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.
 
 ## Install

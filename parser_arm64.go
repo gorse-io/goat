@@ -25,13 +25,17 @@ import (
 	"github.com/samber/lo"
 )
 
-const buildTags = "//go:build !noasm && arm64\n"
+const (
+	buildTags   = "//go:build !noasm && arm64\n"
+	buildTarget = "arm64-linux-gnu"
+)
 
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
 	nameLine      = regexp.MustCompile(`^\w+:.+$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	jmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
@@ -52,11 +56,23 @@ func (line *Line) String() string {
 		builder.WriteString(label)
 		builder.WriteString(":\n")
 	}
-	builder.WriteString("\t")
-	builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
-	builder.WriteString("\t// ")
-	builder.WriteString(line.Assembly)
-	builder.WriteString("\n")
+	if jmpLine.MatchString(line.Assembly) {
+		splits := strings.Split(line.Assembly, "\t")
+		instruction := strings.Map(func(r rune) rune {
+			if r == '.' {
+				return -1
+			}
+			return unicode.ToUpper(r)
+		}, splits[0])
+		label := splits[1][1:]
+		builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
+	} else {
+		builder.WriteString("\t")
+		builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
+		builder.WriteString("\t// ")
+		builder.WriteString(line.Assembly)
+		builder.WriteString("\n")
+	}
 	return builder.String()
 }
 
