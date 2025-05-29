@@ -36,14 +36,10 @@ jobs:
           apt: clang
       - name: Install GOAT
         run: go install .
-      - name: Generate code
-        run: goat tests/src/universal.c -o tests
-      - name: Upload generated code
-        uses: actions/upload-artifact@v4
-        with:
-          path: tests
       - name: Run tests
-        run: go test -v ./tests
+        run: |
+          goat tests/src/universal.c -o tests
+          go test -v ./tests
 
   macos:
     name: macos-latest
@@ -62,6 +58,8 @@ jobs:
         run: go install .
       - name: Run tests
         run: |
+          # Remove XCode
+          rm -rf /Applications/Xcode_15.4.app
           export PATH=/usr/lhomebrew/opt/llvm/bin:$PATH
           export PATH=/usr/homebrew/opt/binutils/bin:$PATH
           goat tests/src/universal.c -o tests

@@ -56,11 +56,23 @@ func (line *Line) String() string {
 		builder.WriteString(label)
 		builder.WriteString(":\n")
 	}
-	builder.WriteString("\t")
-	builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
-	builder.WriteString("\t// ")
-	builder.WriteString(line.Assembly)
-	builder.WriteString("\n")
+	if jmpLine.MatchString(line.Assembly) {
+		splits := strings.Split(line.Assembly, "\t")
+		instruction := strings.Map(func(r rune) rune {
+			if r == '.' {
+				return -1
+			}
+			return unicode.ToUpper(r)
+		}, splits[0])
+		label := splits[1][1:]
+		builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
+	} else {
+		builder.WriteString("\t")
+		builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
+		builder.WriteString("\t// ")
+		builder.WriteString(line.Assembly)
+		builder.WriteString("\n")
+	}
 	return builder.String()
 }
 
@@ -227,16 +239,6 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					}
 				}
 				builder.WriteString("\tRET\n")
-			} else if jmpLine.MatchString(line.Assembly) {
-				splits := strings.Split(line.Assembly, "\t")
-				instruction := strings.Map(func(r rune) rune {
-					if r == '.' {
-						return -1
-					}
-					return unicode.ToUpper(r)
-				}, splits[0])
-				label := splits[1][1:]
-				builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
 			} else {
 				builder.WriteString(line.String())
 			}
