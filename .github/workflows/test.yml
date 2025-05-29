@@ -60,6 +60,7 @@ jobs:
         run: |
           # Remove XCode
           rm -rf /Applications/Xcode_15.4.app
+          rm -rf /Library/Developer/CommandLineTools
           export PATH=/usr/lhomebrew/opt/llvm/bin:$PATH
           export PATH=/usr/homebrew/opt/binutils/bin:$PATH
           goat tests/src/universal.c -o tests
