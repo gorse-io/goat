@@ -50,18 +50,13 @@ jobs:
         with:
           go-version: stable
       - name: Install clang and binutils
-        run: |
-          brew install llvm binutils
-          ln -sf /usr/homebrew/opt/llvm/bin/clang /usr/local/bin/clang
-          ln -sf /usr/homebrew/opt/binutils/bin/objdump /usr/local/bin/objdump
+        run: brew install llvm binutils
       - name: Install GOAT
         run: go install .
       - name: Run tests
         run: |
-          # Remove XCode
-          rm -rf /Applications/Xcode_15.4.app
-          sudo rm -rf /Library/Developer/CommandLineTools
           export PATH=/usr/lhomebrew/opt/llvm/bin:$PATH
           export PATH=/usr/homebrew/opt/binutils/bin:$PATH
+          echo $PATH
           goat tests/src/universal.c -o tests
           go test -v ./tests
