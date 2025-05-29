@@ -59,3 +59,20 @@ jobs:
           export PATH=/opt/homebrew/opt/binutils/bin:$PATH
           goat tests/src/universal.c -o tests
           go test -v ./tests
+
+  windows:
+    name: windows-latest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v4
+      - name: Install LLVM and MinGW-w64
+        uses: ConorMacBride/install-package@v1
+        with:
+          choco: llvm mingw
+      - name: Install GOAT
+        run: go install .
+      - name: Run tests
+        run: |
+          goat tests/src/universal.c -o tests
+          go test -v ./tests

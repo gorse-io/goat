@@ -7,7 +7,7 @@ Go assembly transpiler for C programming languages. It help to utilize optimizat
 
 ## Prerequisites
 
-Ubuntu is the recommended operating system for GoAT. The following packages are required:
+The following packages are required:
 
 - Ubuntu for AMD64:
 
@@ -23,7 +23,7 @@ sudo apt update
 sudo apt install clang
 ```
 
-- macOS (Apple Silicon):
+- macOS:
 
 ```bash
 brew install llvm binutils
@@ -31,6 +31,14 @@ brew install llvm binutils
 # Override the default clang and objdump to use Homebrew's version
 export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 export PATH="/opt/homebrew/opt/binutils/bin:$PATH"
+```
+
+- Windows:
+
+Install LLVM and MinGW from the official website or use [Chocolatey](https://chocolatey.org/) package manager:
+
+```bash
+choco install llvm mingw
 ```
 
 Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.
