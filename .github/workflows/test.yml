@@ -47,12 +47,12 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v4
-      - name: Install clang
+      - name: Install LLVM and MinGW-w64
         uses: ConorMacBride/install-package@v1
         with:
-          choco: llvm
+          choco: llvm mingw
       - name: Install GOAT
         run: go install .
       - name: Run tests
         run: |
-          clang --version
+          objdump --version
