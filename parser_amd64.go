@@ -51,10 +51,6 @@ type Line struct {
 
 func (line *Line) String() string {
 	var builder strings.Builder
-	for _, label := range line.Labels {
-		builder.WriteString(label)
-		builder.WriteString(":\n")
-	}
 	builder.WriteString("\t")
 	if strings.HasPrefix(line.Assembly, "j") {
 		splits := strings.Split(line.Assembly, ".")
@@ -263,6 +259,10 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			builder.WriteString("\tPUSHQ $0\n")
 		}
 		for _, line := range function.Lines {
+			for _, label := range line.Labels {
+				builder.WriteString(label)
+				builder.WriteString(":\n")
+			}
 			if line.Assembly == "retq" {
 				if len(stack) > 0 {
 					for i := 0; i <= len(stack); i++ {
