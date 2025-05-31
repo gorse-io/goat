@@ -52,10 +52,6 @@ type Line struct {
 
 func (line *Line) String() string {
 	var builder strings.Builder
-	for _, label := range line.Labels {
-		builder.WriteString(label)
-		builder.WriteString(":\n")
-	}
 	if jmpLine.MatchString(line.Assembly) {
 		splits := strings.Split(line.Assembly, "\t")
 		instruction := strings.Map(func(r rune) rune {
@@ -225,6 +221,10 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			}
 		}
 		for _, line := range function.Lines {
+			for _, label := range line.Labels {
+				builder.WriteString(label)
+				builder.WriteString(":\n")
+			}
 			if line.Assembly == "ret" {
 				if function.Type != "void" {
 					switch function.Type {
