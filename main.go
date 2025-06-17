@@ -105,8 +105,10 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	t.writeHeader(&builder)
-	builder.WriteString(fmt.Sprintf("package %v\n\n", t.Package))
-	builder.WriteString("import \"unsafe\"\n")
+	builder.WriteString(fmt.Sprintf("package %v\n", t.Package))
+	if hasPointer(functions) {
+		builder.WriteString("\nimport \"unsafe\"\n")
+	}
 	for _, function := range functions {
 		builder.WriteString("\n//go:noescape\n")
 		builder.WriteString("func ")
@@ -397,6 +399,17 @@ func fetchVersion(command string) string {
 		os.Exit(1)
 	}
 	return version[loc[0]:]
+}
+
+func hasPointer(functions []Function) bool {
+	for _, function := range functions {
+		for _, param := range function.Parameters {
+			if param.Pointer {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var verbose bool
