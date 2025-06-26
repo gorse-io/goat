@@ -159,7 +159,7 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 
 func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mno-red-zone", "-mstackrealign", "-mllvm", "-inline-threshold=1000",
-		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti")
+		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	_, err := runCommand("clang", append([]string{"-S", "-target", buildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {
 		return err
@@ -233,13 +233,15 @@ func (t *TranslateUnit) fixSource(path string) (string, error) {
 			builder.WriteRune('\n')
 		}
 		return builder.String(), nil
+	} else if runtime.GOARCH == "riscv64" {
+		return string(bytes), nil
 	}
 	return "", fmt.Errorf("unsupported arch: %s", runtime.GOARCH)
 }
 
 // listIncludePaths lists include paths used by clang.
 func listIncludePaths() ([]string, error) {
-	out, err := runCommand("bash", "-c", "echo | gcc -xc -E -v -")
+	out, err := runCommand("bash", "-c", "echo | clang -xc -E -v -")
 	if err != nil {
 		return nil, err
 	}
