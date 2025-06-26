@@ -233,13 +233,15 @@ func (t *TranslateUnit) fixSource(path string) (string, error) {
 			builder.WriteRune('\n')
 		}
 		return builder.String(), nil
+	} else if runtime.GOARCH == "riscv64" {
+		return string(bytes), nil
 	}
 	return "", fmt.Errorf("unsupported arch: %s", runtime.GOARCH)
 }
 
 // listIncludePaths lists include paths used by clang.
 func listIncludePaths() ([]string, error) {
-	out, err := runCommand("bash", "-c", "echo | gcc -xc -E -v -")
+	out, err := runCommand("bash", "-c", "echo | clang -xc -E -v -")
 	if err != nil {
 		return nil, err
 	}
