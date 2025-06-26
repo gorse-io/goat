@@ -159,7 +159,7 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 
 func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mno-red-zone", "-mstackrealign", "-mllvm", "-inline-threshold=1000",
-		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti")
+		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	_, err := runCommand("clang", append([]string{"-S", "-target", buildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {
 		return err
