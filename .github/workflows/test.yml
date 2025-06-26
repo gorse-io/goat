@@ -76,3 +76,24 @@ jobs:
         run: |
           goat tests/src/universal.c -o tests
           go test -v ./tests
+
+  riscv:
+    name: ubuntu-24.04-riscv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: riscv64
+          distro: ubuntu24.04
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume "${PWD}:/opt/goat"
+          install: |
+            apt-get update
+            apt-get install -y clang golang
+          run: |
+            cd /opt/goat
+            go install .
+            goat tests/src/universal.c -o tests -march=rv64imafd
+            go test -v ./tests
