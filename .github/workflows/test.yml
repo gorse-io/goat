@@ -94,6 +94,5 @@ jobs:
             apt-get install -y clang golang
           run: |
             cd /opt/goat
-            go install .
-            goat tests/src/universal.c -o tests -march=rv64imafd
+            go run . tests/src/universal.c -o tests -march=rv64imafd
             go test -v ./tests
