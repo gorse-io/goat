@@ -41,6 +41,45 @@ var (
 
 	registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
+
+	registersAlias = map[string]string{
+		"$zero": "R0",
+		"$ra":   "R1",
+		"$tp":   "R2",
+		"$sp":   "R3",
+		"$a0":   "R4",
+		"$a1":   "R5",
+		"$a2":   "R6",
+		"$a3":   "R7",
+		"$a4":   "R8",
+		"$a5":   "R9",
+		"$a6":   "R10",
+		"$a7":   "R11",
+		"$t0":   "R12",
+		"$t1":   "R13",
+		"$t2":   "R14",
+		"$t3":   "R15",
+		"$t4":   "R16",
+		"$t5":   "R17",
+		"$t6":   "R18",
+		"$t7":   "R19",
+		"$t8":   "R20",
+		"$fp":   "R22",
+		"$s0":   "R23",
+		"$s1":   "R24",
+		"$s2":   "R25",
+		"$s3":   "R26",
+		"$s4":   "R27",
+		"$s5":   "R28",
+		"$s6":   "R29",
+		"$s7":   "R30",
+		"$s8":   "R31",
+		"$s9":   "R22",
+	}
+	opAlias = map[string]string{
+		"b":    "JMP",
+		"bnez": "BNE",
+	}
 )
 
 type Line struct {
@@ -52,17 +91,31 @@ type Line struct {
 func (line *Line) String() string {
 	var builder strings.Builder
 	builder.WriteString("\t")
-	if strings.HasPrefix(line.Assembly, "j") {
-		splits := strings.Split(line.Assembly, "\t")
-		label := splits[1][1:]
-		builder.WriteString(fmt.Sprintf("JMP %s\n", label))
-	} else {
-		if len(line.Binary) == 8 {
-			builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
+	if strings.HasPrefix(line.Assembly, "b") && !strings.HasPrefix(line.Assembly, "bstrins") {
+		splits := strings.Split(line.Assembly, ".")
+		op := strings.TrimSpace(splits[0])
+		registers := strings.FieldsFunc(op, func(r rune) bool {
+			return unicode.IsSpace(r) || r == ','
+		})
+		if o, ok := opAlias[registers[0]]; !ok {
+			builder.WriteString(strings.ToUpper(registers[0]))
 		} else {
-			_, _ = fmt.Fprintln(os.Stderr, "compressed instructions are not supported.")
-			os.Exit(1)
+			builder.WriteString(o)
 		}
+		builder.WriteRune(' ')
+		for i := 1; i < len(registers); i++ {
+			if r, ok := registersAlias[registers[i]]; !ok {
+				_, _ = fmt.Fprintln(os.Stderr, "unexpected register alias:", registers[i])
+				os.Exit(1)
+			} else {
+				builder.WriteString(r)
+				builder.WriteRune(',')
+			}
+		}
+		builder.WriteString(splits[1])
+	} else {
+		builder.WriteString("\t")
+		builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
 		builder.WriteString("\t// ")
 		builder.WriteString(line.Assembly)
 	}
