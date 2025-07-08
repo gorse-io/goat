@@ -271,11 +271,11 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			for i := 0; i < len(stack); i++ {
 				frameSize += supportedTypes[stack[i].B.Type]
 			}
-			builder.WriteString(fmt.Sprintf("\tADDI -%d, SP, SP\n", frameSize))
+			builder.WriteString(fmt.Sprintf("\tADDV $-%d, R3\n", frameSize))
 			stackoffset := 0
 			for i := 0; i < len(stack); i++ {
-				builder.WriteString(fmt.Sprintf("\tMOV %s+%d(FP), T0\n", stack[i].B.Name, frameSize+stack[i].A))
-				builder.WriteString(fmt.Sprintf("\tMOV T0, %d(SP)\n", stackoffset))
+				builder.WriteString(fmt.Sprintf("\tMOVV %s+%d(FP), R12\n", stack[i].B.Name, frameSize+stack[i].A))
+				builder.WriteString(fmt.Sprintf("\tMOVV R12, (%d)(R3)\n", stackoffset))
 				stackoffset += supportedTypes[stack[i].B.Type]
 			}
 		}
@@ -286,7 +286,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			}
 			if line.Assembly == "ret" {
 				if frameSize > 0 {
-					builder.WriteString(fmt.Sprintf("\tADDI %d, SP, SP\n", frameSize))
+					builder.WriteString(fmt.Sprintf("\tADDV $%d, R3\n", frameSize))
 				}
 				if function.Type != "void" {
 					switch function.Type {
