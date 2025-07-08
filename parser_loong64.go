@@ -40,7 +40,7 @@ var (
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
 	registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
-	fpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
+	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 )
 
 type Line struct {
@@ -152,6 +152,9 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 				}
 				binary = s
 			}
+			if assembly == "nop" {
+				continue
+			}
 			if lineNumber >= len(functions[functionName]) {
 				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
 			}
@@ -237,9 +240,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					case "int64_t", "long", "_Bool":
 						builder.WriteString(fmt.Sprintf("\tMOVV R4, result+%d(FP)\n", offset))
 					case "double":
-						builder.WriteString(fmt.Sprintf("\tMOVD FA0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tMOVD F0, result+%d(FP)\n", offset))
 					case "float":
-						builder.WriteString(fmt.Sprintf("\tMOVF FA0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tMOVF F0, result+%d(FP)\n", offset))
 					default:
 						return fmt.Errorf("unsupported return type: %v", function.Type)
 					}
