@@ -87,10 +87,10 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssembly(path string) (map[string][]Line, error) {
+func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func(file *os.File) {
 		if err = file.Close(); err != nil {
@@ -100,6 +100,7 @@ func parseAssembly(path string) (map[string][]Line, error) {
 	}(file)
 
 	var (
+		stackSizes   = make(map[string]int)
 		functions    = make(map[string][]Line)
 		functionName string
 		labelName    string
@@ -141,9 +142,9 @@ func parseAssembly(path string) (map[string][]Line, error) {
 	}
 
 	if err = scanner.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return functions, nil
+	return functions, stackSizes, nil
 }
 
 func sanitizeAsm(asm string) string {
@@ -215,7 +216,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			returnSize += 8
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, returnSize+len(function.Parameters)*8))
+			function.Name, returnSize, len(function.Parameters)*8))
 		registerIndex, xmmRegisterIndex, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
 		for _, param := range function.Parameters {
