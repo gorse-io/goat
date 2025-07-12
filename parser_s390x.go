@@ -75,10 +75,10 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssembly(path string) (map[string][]Line, error) {
+func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func(file *os.File) {
 		if err = file.Close(); err != nil {
@@ -88,6 +88,7 @@ func parseAssembly(path string) (map[string][]Line, error) {
 	}(file)
 
 	var (
+		stackSizes   = make(map[string]int)
 		functions    = make(map[string][]Line)
 		functionName string
 		labelName    string
@@ -116,9 +117,9 @@ func parseAssembly(path string) (map[string][]Line, error) {
 				splits := strings.Split(asm, "-")
 				stack, err := strconv.Atoi(splits[1])
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
-				fmt.Println(stack)
+				stackSizes[functionName] += stack
 			}
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
@@ -133,9 +134,9 @@ func parseAssembly(path string) (map[string][]Line, error) {
 	}
 
 	if err = scanner.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return functions, nil
+	return functions, stackSizes, nil
 }
 
 func parseObjectDump(dump string, functions map[string][]Line) error {
@@ -165,7 +166,7 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 				}
 				binary = append(binary, s)
 			}
-			if assembly == "nop" {
+			if strings.HasPrefix(assembly, "nopr") {
 				continue
 			}
 			if lineNumber >= len(functions[functionName]) {
@@ -189,7 +190,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			returnSize += 8
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, returnSize+len(function.Parameters)*8))
+			function.Name, function.StackSize+returnSize, len(function.Parameters)*8))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
 		for _, param := range function.Parameters {
@@ -205,7 +206,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
 				if fpRegisterCount < len(fpRegisters) {
 					if param.Type == "double" {
-						builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					} else {
 						builder.WriteString(fmt.Sprintf("\tMOVF %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					}
@@ -253,9 +254,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					case "int64_t", "long", "_Bool":
 						builder.WriteString(fmt.Sprintf("\tMOVD R2, result+%d(FP)\n", offset))
 					case "double":
-						builder.WriteString(fmt.Sprintf("\tMOVD F0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tFMOVD F0, result+%d(FP)\n", offset))
 					case "float":
-						builder.WriteString(fmt.Sprintf("\tMOVF F0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tFMOVD F0, result+%d(FP)\n", offset))
 					default:
 						return fmt.Errorf("unsupported return type: %v", function.Type)
 					}
