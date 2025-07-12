@@ -233,7 +233,7 @@ func (t *TranslateUnit) fixSource(path string) (string, error) {
 			builder.WriteRune('\n')
 		}
 		return builder.String(), nil
-	} else if runtime.GOARCH == "riscv64" || runtime.GOARCH == "loong64" {
+	} else if runtime.GOARCH == "riscv64" || runtime.GOARCH == "loong64" || runtime.GOARCH == "s390x" {
 		return string(bytes), nil
 	}
 	return "", fmt.Errorf("unsupported arch: %s", runtime.GOARCH)
