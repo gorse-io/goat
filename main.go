@@ -179,7 +179,7 @@ func (t *TranslateUnit) Translate() error {
 	if err = t.compile(t.Options...); err != nil {
 		return err
 	}
-	assembly, err := parseAssembly(t.Assembly)
+	assembly, stackSizes, err := parseAssembly(t.Assembly)
 	if err != nil {
 		return err
 	}
@@ -193,6 +193,7 @@ func (t *TranslateUnit) Translate() error {
 	}
 	for i, name := range functions {
 		functions[i].Lines = assembly[name.Name]
+		functions[i].StackSize = stackSizes[name.Name]
 	}
 	return t.generateGoAssembly(t.GoAssembly, functions)
 }
@@ -296,6 +297,7 @@ type Function struct {
 	Type       string
 	Parameters []Parameter
 	Lines      []Line
+	StackSize  int
 }
 
 // convertFunction extracts the function definition from cc.DirectDeclarator.
