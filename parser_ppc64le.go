@@ -35,6 +35,7 @@ var (
 	nameLine      = regexp.MustCompile(`^\w+:.+$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	jmp0ArgsLine  = regexp.MustCompile(`^b\w*\s\.\w+_\d+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
@@ -52,16 +53,27 @@ type Line struct {
 func (line *Line) String() string {
 	var builder strings.Builder
 	builder.WriteString("\t")
-	builder.WriteString("\t")
-	if len(line.Binary) == 4 {
-		builder.WriteString(fmt.Sprintf("WORD $0x%v%v%v%v",
-			line.Binary[3], line.Binary[2], line.Binary[1], line.Binary[0]))
+	if jmp0ArgsLine.MatchString(line.Assembly) {
+		splits := strings.Split(line.Assembly, ".")
+		op := strings.TrimSpace(splits[0])
+		if op == "b" {
+			op = "JMP"
+		} else {
+			op = strings.Fields(op)[0]
+		}
+		operand := splits[1]
+		builder.WriteString(fmt.Sprintf("%s %s", strings.ToUpper(op), operand))
 	} else {
-		_, _ = fmt.Fprintln(os.Stderr, "unsupported instruction length.")
-		os.Exit(1)
+		if len(line.Binary) == 4 {
+			builder.WriteString(fmt.Sprintf("WORD $0x%v%v%v%v",
+				line.Binary[3], line.Binary[2], line.Binary[1], line.Binary[0]))
+		} else {
+			_, _ = fmt.Fprintln(os.Stderr, "unsupported instruction length.")
+			os.Exit(1)
+		}
+		builder.WriteString("\t// ")
+		builder.WriteString(line.Assembly)
 	}
-	builder.WriteString("\t// ")
-	builder.WriteString(line.Assembly)
 	builder.WriteString("\n")
 	return builder.String()
 }
@@ -238,7 +250,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					case "double":
 						builder.WriteString(fmt.Sprintf("\tMOVD F0, result+%d(FP)\n", offset))
 					case "float":
-						builder.WriteString(fmt.Sprintf("\tMOVF F0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tFMOVS F1, result+%d(FP)\n", offset))
 					default:
 						return fmt.Errorf("unsupported return type: %v", function.Type)
 					}
