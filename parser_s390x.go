@@ -36,13 +36,25 @@ var (
 	nameLine      = regexp.MustCompile(`^\w+:.+$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
-	stackLine     = regexp.MustCompile(`^aghi\s%r15,\s-1\d+$`)
+	stackLine     = regexp.MustCompile(`^aghi\s%r15,\s-\d+$`)
+	jmpLine       = regexp.MustCompile(`^cl?g(i|r)j.+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
 	registers   = []string{"R2", "R3", "R4", "R5", "R6", "R7"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
+
+	conditionCodes = map[string]rune{
+		"lh": '6',
+		"e":  '8',
+		"he": 'a',
+		"le": 'c',
+	}
+	opAlias = map[string]string{
+		"j":   "JMP",
+		"jhe": "BGE",
+	}
 )
 
 type Line struct {
@@ -54,23 +66,49 @@ type Line struct {
 func (line *Line) String() string {
 	var builder strings.Builder
 	builder.WriteString("\t")
-	builder.WriteString("\t")
-	pos := 0
-	for pos < len(line.Binary) {
-		if pos > 0 {
-			builder.WriteString("; ")
+	if jmpLine.MatchString(line.Assembly) {
+		fmt.Println(line.Assembly)
+		splits := strings.Fields(line.Assembly)
+		op := splits[0]
+		opSplits := strings.Split(op, "j")
+		builder.WriteString(strings.ToUpper(opSplits[0]))
+		builder.WriteRune('J')
+		builder.WriteString(" $0x")
+		builder.WriteRune(conditionCodes[opSplits[1]])
+		for i := 1; i < len(splits); i++ {
+			builder.WriteString(", ")
+			if strings.HasPrefix(splits[i], ".") {
+				builder.WriteString(splits[i][1:])
+			} else if strings.HasPrefix(splits[i], "%") {
+				builder.WriteString(strings.ToUpper(splits[i][1:]))
+			} else {
+				builder.WriteRune('$')
+				builder.WriteString(splits[i])
+			}
 		}
-		if len(line.Binary)-pos >= 4 {
-			builder.WriteString(fmt.Sprintf("WORD $0x%v%v%v%v",
-				line.Binary[pos], line.Binary[pos+1], line.Binary[pos+2], line.Binary[pos+3]))
-			pos += 4
-		} else {
-			builder.WriteString(fmt.Sprintf("BYTE $0x%v", line.Binary[pos]))
-			pos += 1
+	} else if strings.HasPrefix(line.Assembly, "j") {
+		splits := strings.Split(line.Assembly, "\t")
+		op := splits[0]
+		label := splits[1][1:]
+		builder.WriteString(fmt.Sprintf("%s %s\n", opAlias[op], label))
+	} else {
+		pos := 0
+		for pos < len(line.Binary) {
+			if pos > 0 {
+				builder.WriteString("; ")
+			}
+			if len(line.Binary)-pos >= 4 {
+				builder.WriteString(fmt.Sprintf("WORD $0x%v%v%v%v",
+					line.Binary[pos], line.Binary[pos+1], line.Binary[pos+2], line.Binary[pos+3]))
+				pos += 4
+			} else {
+				builder.WriteString(fmt.Sprintf("BYTE $0x%v", line.Binary[pos]))
+				pos += 1
+			}
 		}
+		builder.WriteString("\t// ")
+		builder.WriteString(line.Assembly)
 	}
-	builder.WriteString("\t// ")
-	builder.WriteString(line.Assembly)
 	builder.WriteString("\n")
 	return builder.String()
 }
