@@ -160,6 +160,11 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mno-red-zone", "-mstackrealign", "-mllvm", "-inline-threshold=1000",
 		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
+	if runtime.GOARCH == "arm64" {
+		// R18 is the "platform register", reserved on the Apple platform.
+		// See https://go.dev/doc/asm#arm64
+		args = append(args, "-ffixed-x18")
+	}
 	_, err := runCommand("clang", append([]string{"-S", "-target", buildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {
 		return err
