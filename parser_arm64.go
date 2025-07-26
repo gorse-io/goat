@@ -175,10 +175,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if function.Type != "void" {
 			returnSize += 8
 		}
-		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, len(function.Parameters)*8))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
+		var argsBuilder strings.Builder
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
@@ -192,9 +191,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			if !param.Pointer && (param.Type == "float" || param.Type == "double") {
 				if fpRegisterCount < len(fpRegisters) {
 					if param.Type == "float" {
-						builder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						argsBuilder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						argsBuilder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					}
 					fpRegisterCount++
 				} else {
@@ -202,7 +201,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 			} else {
 				if registerCount < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+					argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
 					registerCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
@@ -213,14 +212,24 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
+		stackOffset := 0
 		if len(stack) > 0 {
-			stackOffset := 0
 			for i := 0; i < len(stack); i++ {
-				builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R8\n", stack[i].B.Name, stack[i].A))
-				builder.WriteString(fmt.Sprintf("\tMOVD R8, %d(RSP)\n", stackOffset))
-				stackOffset += supportedTypes[stack[i].B.Type]
+				argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R8\n", stack[i].B.Name, stack[i].A))
+				argsBuilder.WriteString(fmt.Sprintf("\tMOVD R8, %d(RSP)\n", stackOffset))
+				if stack[i].B.Pointer {
+					stackOffset += 8
+				} else {
+					stackOffset += supportedTypes[stack[i].B.Type]
+				}
 			}
 		}
+		if stackOffset%8 != 0 {
+			stackOffset += 8 - stackOffset%8
+		}
+		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
+			function.Name, stackOffset, offset+returnSize))
+		builder.WriteString(argsBuilder.String())
 		for _, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
