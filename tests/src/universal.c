@@ -55,3 +55,13 @@ double mul(float v1, double v2, float v3, float v4, double v5, double v6, long v
 {
     return v1 * v2 * v3 * v4 * v5 * v6 * v7 * v8;
 }
+
+void reverse(float *x1, float *x2, float *x3, float *x4, float *x5, float *x6, float *x7, float *x8, float *x9, float *x10)
+{
+    float tmp;
+    tmp = *x1; *x1 = *x10; *x10 = tmp;
+    tmp = *x2; *x2 = *x9; *x9 = tmp;
+    tmp = *x3; *x3 = *x8; *x8 = tmp;
+    tmp = *x4; *x4 = *x7; *x7 = tmp;
+    tmp = *x5; *x5 = *x6; *x6 = tmp;
+}

@@ -44,3 +44,10 @@ func TestSum(t *testing.T) {
 func TestMul(t *testing.T) {
 	assert.Equal(t, float64(40320), mul(1, 2, 3, 4, 5, 6, 7, 8))
 }
+
+func TestReverse(t *testing.T) {
+	a := []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	reverse(unsafe.Pointer(&a[0]), unsafe.Pointer(&a[1]), unsafe.Pointer(&a[2]), unsafe.Pointer(&a[3]), unsafe.Pointer(&a[4]),
+		unsafe.Pointer(&a[5]), unsafe.Pointer(&a[6]), unsafe.Pointer(&a[7]), unsafe.Pointer(&a[8]), unsafe.Pointer(&a[9]))
+	assert.Equal(t, []float32{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, a)
+}

@@ -219,14 +219,22 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		frameSize := 0
 		if len(stack) > 0 {
 			for i := 0; i < len(stack); i++ {
-				frameSize += supportedTypes[stack[i].B.Type]
+				if stack[i].B.Pointer {
+					frameSize += 8
+				} else {
+					frameSize += supportedTypes[stack[i].B.Type]
+				}
 			}
 			builder.WriteString(fmt.Sprintf("\tADDI -%d, SP, SP\n", frameSize))
 			stackoffset := 0
 			for i := 0; i < len(stack); i++ {
 				builder.WriteString(fmt.Sprintf("\tMOV %s+%d(FP), T0\n", stack[i].B.Name, frameSize+stack[i].A))
 				builder.WriteString(fmt.Sprintf("\tMOV T0, %d(SP)\n", stackoffset))
-				stackoffset += supportedTypes[stack[i].B.Type]
+				if stack[i].B.Pointer {
+					stackoffset += 8
+				} else {
+					stackoffset += supportedTypes[stack[i].B.Type]
+				}
 			}
 		}
 		for _, line := range function.Lines {
