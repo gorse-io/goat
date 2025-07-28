@@ -79,20 +79,20 @@ jobs:
 
   riscv:
     name: ubuntu-24.04-riscv
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
-      - uses: uraimo/run-on-arch-action@v3
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v5
         with:
-          arch: riscv64
-          distro: ubuntu24.04
-          githubToken: ${{ github.token }}
-          dockerRunArgs: |
-            --volume "${PWD}:/opt/goat"
-          install: |
-            apt-get update
-            apt-get install -y clang golang
-          run: |
-            cd /opt/goat
-            go run . tests/src/universal.c -o tests -march=rv64imafd
-            go test -v ./tests
+          go-version: '1.24.1'
+          check-latest: true
+      - name: Install clang
+        uses: ConorMacBride/install-package@v1
+        with:
+          apt: clang
+      - name: Install GOAT
+        run: go install .
+      - name: Run tests
+        run: |
+          goat tests/src/universal.c -o tests -march=rv64imafd
+          go test -v ./tests
