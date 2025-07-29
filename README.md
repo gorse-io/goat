@@ -183,4 +183,3 @@ func Add(a, b, c []float32) {
 ## Acknowledgments
 
 - GoAT is inspired by [c2goasm](https://github.com/minio/c2goasm).
-- [RISC-V GitHub runner](https://cloud-v.co/github-riscv-runner) is provided by [Cloud-V](https://cloud-v.co/).

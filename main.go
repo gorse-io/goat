@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"modernc.org/cc/v3"
+	"modernc.org/cc/v4"
 )
 
 var supportedTypes = map[string]int{
@@ -64,19 +64,21 @@ func NewTranslateUnit(source string, outputDir string, options ...string) Transl
 
 // parseSource parse C source file and extract functions declarations.
 func (t *TranslateUnit) parseSource() ([]Function, error) {
-	// List include paths.
-	includePaths, err := listIncludePaths()
+	f, err := os.Open(t.Source)
 	if err != nil {
 		return nil, err
 	}
-	source, err := t.fixSource(t.Source)
+	cfg, err := cc.NewConfig(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return nil, err
 	}
-	ast, err := cc.Parse(&cc.Config{}, nil, includePaths,
-		[]cc.Source{{Name: t.Source, Value: source}})
+	ast, err := cc.Parse(cfg, []cc.Source{
+		{Name: "<predefined>", Value: cfg.Predefined},
+		{Name: "<builtin>", Value: cc.Builtin},
+		{Name: t.Source, Value: f},
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse source file %v with include paths %v: %w", t.Source, includePaths, err)
+		return nil, fmt.Errorf("failed to parse source file %v: %w", t.Source, err)
 	}
 	var functions []Function
 	for tu := ast.TranslationUnit; tu != nil; tu = tu.TranslationUnit {
@@ -203,69 +205,6 @@ func (t *TranslateUnit) Translate() error {
 	return t.generateGoAssembly(t.GoAssembly, functions)
 }
 
-// fixSource fixes compile errors in source.
-func (t *TranslateUnit) fixSource(path string) (string, error) {
-	bytes, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	if runtime.GOARCH == "amd64" {
-		t.Offset = -1
-		var builder strings.Builder
-		builder.WriteString("#define __STDC_HOSTED__ 1\n")
-		builder.Write(bytes)
-		return builder.String(), nil
-	} else if runtime.GOARCH == "arm64" {
-		var (
-			builder     strings.Builder
-			clauseCount int
-		)
-		for _, line := range strings.Split(string(bytes), "\n") {
-			if strings.HasPrefix(line, "#include") {
-				// Do nothing
-			} else if strings.Contains(line, "{") {
-				if clauseCount == 0 {
-					builder.WriteString(line[:strings.Index(line, "{")+1])
-				}
-				clauseCount++
-			} else if strings.Contains(line, "}") {
-				clauseCount--
-				if clauseCount == 0 {
-					builder.WriteString(line[strings.Index(line, "}"):])
-				}
-			} else if clauseCount == 0 {
-				builder.WriteString(line)
-			}
-			builder.WriteRune('\n')
-		}
-		return builder.String(), nil
-	} else if runtime.GOARCH == "riscv64" || runtime.GOARCH == "loong64" {
-		return string(bytes), nil
-	}
-	return "", fmt.Errorf("unsupported arch: %s", runtime.GOARCH)
-}
-
-// listIncludePaths lists include paths used by clang.
-func listIncludePaths() ([]string, error) {
-	out, err := runCommand("bash", "-c", "echo | clang -xc -E -v -")
-	if err != nil {
-		return nil, err
-	}
-	var start bool
-	var paths []string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "#include <...> search starts here:") {
-			start = true
-		} else if strings.HasPrefix(line, "End of search list.") {
-			start = false
-		} else if start {
-			path := strings.TrimSpace(line)
-			paths = append(paths, path)
-		}
-	}
-	return paths, nil
-}
-
 type ParameterType struct {
 	Type    string
 	Pointer bool
@@ -312,7 +251,7 @@ func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinitio
 	if declarationSpecifiers.Case != cc.DeclarationSpecifiersTypeSpec {
 		return Function{}, fmt.Errorf("invalid function return type: %v", declarationSpecifiers.Case)
 	}
-	returnType := declarationSpecifiers.TypeSpecifier.Token.Value
+	returnType := declarationSpecifiers.TypeSpecifier.Token.SrcStr()
 	// parse parameters
 	directDeclarator := functionDefinition.Declarator.DirectDeclarator
 	if directDeclarator.Case != cc.DirectDeclaratorFuncParam {
@@ -323,9 +262,9 @@ func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinitio
 		return Function{}, err
 	}
 	return Function{
-		Name:       directDeclarator.DirectDeclarator.Token.Value.String(),
+		Name:       directDeclarator.DirectDeclarator.Token.SrcStr(),
 		Position:   directDeclarator.Position().Line,
-		Type:       returnType.String(),
+		Type:       returnType,
 		Parameters: params,
 	}, nil
 }
@@ -333,23 +272,23 @@ func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinitio
 // convertFunctionParameters extracts function parameters from cc.ParameterList.
 func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]Parameter, error) {
 	declaration := params.ParameterDeclaration
-	paramName := declaration.Declarator.DirectDeclarator.Token.Value
-	var paramType cc.StringID
+	paramName := declaration.Declarator.DirectDeclarator.Token.SrcStr()
+	var paramType string
 	if declaration.DeclarationSpecifiers.Case == cc.DeclarationSpecifiersTypeQual {
-		paramType = declaration.DeclarationSpecifiers.DeclarationSpecifiers.TypeSpecifier.Token.Value
+		paramType = declaration.DeclarationSpecifiers.DeclarationSpecifiers.TypeSpecifier.Token.SrcStr()
 	} else {
-		paramType = declaration.DeclarationSpecifiers.TypeSpecifier.Token.Value
+		paramType = declaration.DeclarationSpecifiers.TypeSpecifier.Token.SrcStr()
 	}
 	isPointer := declaration.Declarator.Pointer != nil
-	if _, ok := supportedTypes[paramType.String()]; !ok && !isPointer {
+	if _, ok := supportedTypes[paramType]; !ok && !isPointer {
 		position := declaration.Position()
 		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v",
 			position.Filename, position.Line+t.Offset, position.Column, paramType)
 	}
 	paramNames := []Parameter{{
-		Name: paramName.String(),
+		Name: paramName,
 		ParameterType: ParameterType{
-			Type:    paramType.String(),
+			Type:    paramType,
 			Pointer: isPointer,
 		},
 	}}
