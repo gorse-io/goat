@@ -177,6 +177,9 @@ func (t *TranslateUnit) compile(args ...string) error {
 		// R18 is the "platform register", reserved on the Apple platform.
 		// See https://go.dev/doc/asm#arm64
 		args = append(args, "-ffixed-x18")
+	} else if runtime.GOARCH == "riscv64" {
+		// X27 points to the Go routine structure.
+		args = append(args, "-ffixed-x27")
 	}
 	_, err := runCommand("clang", append([]string{"-S", "-target", buildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {

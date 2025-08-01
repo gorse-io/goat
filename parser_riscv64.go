@@ -205,7 +205,11 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 			} else {
 				if registerCount < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOV %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+					if param.Type == "_Bool" {
+						builder.WriteString(fmt.Sprintf("\tMOVB %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+					} else {
+						builder.WriteString(fmt.Sprintf("\tMOV %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+					}
 					registerCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
@@ -248,8 +252,10 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				if function.Type != "void" {
 					switch function.Type {
-					case "int64_t", "long", "_Bool":
+					case "int64_t", "long":
 						builder.WriteString(fmt.Sprintf("\tMOV A0, result+%d(FP)\n", offset))
+					case "_Bool":
+						builder.WriteString(fmt.Sprintf("\tMOVB A0, result+%d(FP)\n", offset))
 					case "double":
 						builder.WriteString(fmt.Sprintf("\tMOVD FA0, result+%d(FP)\n", offset))
 					case "float":
