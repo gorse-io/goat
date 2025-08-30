@@ -22,7 +22,7 @@ jobs:
       - name: Run tests
         run: |
           goat tests/src/universal.c -o tests
-          go test -v ./tests
+          go test -C ./tests -v
 
   arm:
     name: ubuntu-24.04-arm
@@ -39,7 +39,7 @@ jobs:
       - name: Run tests
         run: |
           goat tests/src/universal.c -o tests
-          go test -v ./tests
+          go test -C ./tests -v
 
   macos:
     name: macos-latest
@@ -58,7 +58,7 @@ jobs:
           export PATH=/opt/homebrew/opt/llvm/bin:$PATH
           export PATH=/opt/homebrew/opt/binutils/bin:$PATH
           goat tests/src/universal.c -o tests
-          go test -v ./tests
+          go test -C ./tests -v
 
   windows:
     name: windows-latest
@@ -75,7 +75,7 @@ jobs:
       - name: Run tests
         run: |
           goat tests/src/universal.c -o tests
-          go test -v ./tests
+          go test -C ./tests -v
 
   riscv:
     name: ubuntu-24.04-riscv
@@ -95,4 +95,4 @@ jobs:
           run: |
             cd /opt/goat
             go run . tests/src/universal.c -o tests -march=rv64imafd
-            go test -v ./tests
+            go test -C ./tests -v
