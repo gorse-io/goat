@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -163,6 +164,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		dataName     string
 		dataSection  bool
 		data         []internal.DataSymbol
+		cfiRegex     = regexp.MustCompile(`^\s+\.cfi_def_cfa_offset\s+(\d+)`)
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -190,6 +192,11 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 			} else {
 				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 			}
+		} else if m := cfiRegex.FindStringSubmatch(line); m != nil {
+			if offset, err := strconv.Atoi(m[1]); err == nil && offset > stackSizes[functionName] {
+				stackSizes[functionName] = offset
+			}
+			continue
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
@@ -325,7 +332,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			offset += 8 - offset%8
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, offset+internal.SupportedTypes[function.Type]))
+			function.Name, max(returnSize, function.StackSize), offset+internal.SupportedTypes[function.Type]))
 		builder.WriteString(body.String())
 		frameSize := 0
 		if len(stack) > 0 {

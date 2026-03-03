@@ -226,6 +226,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		dataName     string
 		dataSection  bool
 		data         []internal.DataSymbol
+		cfiRegex     = regexp.MustCompile(`^\s+\.cfi_def_cfa_offset\s+(\d+)`)
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -253,6 +254,11 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 			} else {
 				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 			}
+		} else if m := cfiRegex.FindStringSubmatch(line); m != nil {
+			if offset, err := strconv.Atoi(m[1]); err == nil && offset > stackSizes[functionName] {
+				stackSizes[functionName] = offset
+			}
+			continue
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
@@ -356,7 +362,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		}
 		resultSize := internal.SupportedTypes[function.Type]
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, argumentSize(function, resultSize)))
+			function.Name, max(returnSize, function.StackSize), argumentSize(function, resultSize)))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, internal.Parameter]
 		for _, param := range function.Parameters {
