@@ -331,8 +331,13 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
+		textFrameSize := max(returnSize, function.StackSize)
+		// Go's assembler requires frame sizes to be aligned to 16 bytes on riscv64
+		if textFrameSize%16 != 0 {
+			textFrameSize += 16 - textFrameSize%16
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, max(returnSize, function.StackSize), offset+internal.SupportedTypes[function.Type]))
+			function.Name, textFrameSize, offset+internal.SupportedTypes[function.Type]))
 		builder.WriteString(body.String())
 		frameSize := 0
 		if len(stack) > 0 {

@@ -204,8 +204,14 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 			}
 		} else if m := cfiRegex.FindStringSubmatch(line); m != nil {
-			if offset, err := strconv.Atoi(m[1]); err == nil && offset > stackSizes[functionName] {
-				stackSizes[functionName] = offset
+			if offset, err := strconv.Atoi(m[1]); err == nil {
+				// On x86-64, CFA offset includes the 8-byte return address
+				// pushed by the call instruction. Subtract it to get the
+				// actual stack frame usage.
+				adjusted := max(0, offset-8)
+				if adjusted > stackSizes[functionName] {
+					stackSizes[functionName] = adjusted
+				}
 			}
 			continue
 		} else if attributeLine.MatchString(line) {
@@ -367,8 +373,13 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
+		frameSize := max(returnSize, function.StackSize)
+		// Go's assembler requires frame sizes to be aligned to 16 bytes
+		if frameSize%16 != 0 {
+			frameSize += 16 - frameSize%16
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, max(returnSize, function.StackSize), offset+internal.SupportedTypes[function.Type]))
+			function.Name, frameSize, offset+internal.SupportedTypes[function.Type]))
 		builder.WriteString(body.String())
 		if len(stack) > 0 {
 			for _, s := range slices.Backward(stack) {
