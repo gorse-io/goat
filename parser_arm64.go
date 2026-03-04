@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -91,10 +92,17 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 		functions    = make(map[string][]Line)
 		functionName string
 		labelName    string
+		cfiRegex     = regexp.MustCompile(`^\s+\.cfi_def_cfa_offset\s+(\d+)`)
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if m := cfiRegex.FindStringSubmatch(line); m != nil {
+			if offset, err := strconv.Atoi(m[1]); err == nil && offset > stackSizes[functionName] {
+				stackSizes[functionName] = offset
+			}
+			continue
+		}
 		if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
@@ -319,8 +327,13 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
+		frameSize := max(stackOffset, function.StackSize)
+		// Go's assembler requires frame sizes to be aligned to 16 bytes on arm64
+		if frameSize%16 != 0 {
+			frameSize += 16 - frameSize%16
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, stackOffset, offset+returnSize))
+			function.Name, frameSize, offset+returnSize))
 		builder.WriteString(argsBuilder.String())
 		for _, line := range function.Lines {
 			for _, label := range line.Labels {

@@ -486,7 +486,7 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 
 func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mno-red-zone", "-mllvm", "-inline-threshold=1000",
-		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin",
+		"-fno-exceptions", "-fno-rtti", "-fno-builtin",
 		"-fomit-frame-pointer")
 	if runtime.GOARCH == "arm64" {
 		// R18 is the "platform register", reserved on the Apple platform.
