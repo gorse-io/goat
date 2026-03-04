@@ -191,8 +191,13 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				returnSize = 8 // Default 8-byte slot for pointers/unknown types
 			}
 		}
+		frameSize := max(returnSize, function.StackSize)
+		// Go's assembler requires frame sizes to be aligned to 16 bytes on riscv64
+		if frameSize%16 != 0 {
+			frameSize += 16 - frameSize%16
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, max(returnSize, function.StackSize), len(function.Parameters)*8))
+			function.Name, frameSize, len(function.Parameters)*8))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
 		for _, param := range function.Parameters {

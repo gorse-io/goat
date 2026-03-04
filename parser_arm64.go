@@ -327,8 +327,13 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
+		frameSize := max(stackOffset, function.StackSize)
+		// Go's assembler requires frame sizes to be aligned to 16 bytes on arm64
+		if frameSize%16 != 0 {
+			frameSize += 16 - frameSize%16
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, max(stackOffset, function.StackSize), offset+returnSize))
+			function.Name, frameSize, offset+returnSize))
 		builder.WriteString(argsBuilder.String())
 		for _, line := range function.Lines {
 			for _, label := range line.Labels {
