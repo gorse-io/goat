@@ -96,8 +96,7 @@ jobs:
           QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
           OBJDUMP: /usr/bin/riscv64-linux-gnu-objdump
           CLANG: /usr/bin/clang
-        run: |
-          qemu-riscv64-static ./goat tests/src/universal.c -o tests -march=rv64imafd
+        run: qemu-riscv64-static ./goat tests/src/universal.c -o tests -march=rv64imafd
       - name: Run tests with QEMU
         env:
           QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
@@ -105,3 +104,31 @@ jobs:
           cd tests
           GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go test -c -o tests.test
           qemu-riscv64-static ./tests.test -test.v
+
+  loong64:
+    name: qemu-loong64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
+      - name: Install dependencies
+        uses: ConorMacBride/install-package@v1
+        with:
+          apt: qemu-user-static clang lld binutils-loongarch64-linux-gnu gcc-14-loongarch64-linux-gnu g++-14-loongarch64-linux-gnu
+      - name: Cross-compile GOAT for LoongArch
+        run: GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go build -o goat .
+      - name: Generate LoongArch assembly with GOAT
+        env:
+          CC: loongarch64-linux-gnu-gcc-14
+          CXX: loongarch64-linux-gnu-g++-14
+          QEMU_LD_PREFIX: /usr/loongarch64-linux-gnu
+          OBJDUMP: /usr/bin/loongarch64-linux-gnu-objdump
+          CLANG: /usr/bin/clang
+        run: qemu-loongarch64-static ./goat tests/src/universal.c -o tests
+      - name: Run tests with QEMU
+        env:
+          QEMU_LD_PREFIX: /usr/loongarch64-linux-gnu
+        run: |
+          cd tests
+          GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go test -c -o tests.test
+          qemu-loongarch64-static ./tests.test -test.v
