@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"runtime"
 	"strings"
 	"unicode"
 
@@ -26,14 +25,9 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
+const (
 	buildTags   = "//go:build !noasm && amd64\n"
-	buildTarget = func() string {
-		if runtime.GOOS == "darwin" {
-			return "x86_64-apple-darwin"
-		}
-		return "x86_64-linux-gnu"
-	}()
+	buildTarget = "amd64-linux-gnu"
 )
 
 var (
@@ -46,9 +40,7 @@ var (
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
 	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
-	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"} // 128-bit SSE
-	ymmRegisters = []string{"Y0", "Y1", "Y2", "Y3", "Y4", "Y5", "Y6", "Y7"} // 256-bit AVX
-	zmmRegisters = []string{"Z0", "Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7"} // 512-bit AVX-512
+	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
 )
 
 type Line struct {
@@ -120,10 +112,6 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 			continue
 		} else if nameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
-			// On macOS, function names are prefixed with underscore - strip it
-			if runtime.GOOS == "darwin" && strings.HasPrefix(functionName, "_") {
-				functionName = functionName[1:]
-			}
 			functions[functionName] = make([]Line, 0)
 			labelName = ""
 		} else if labelLine.MatchString(line) {
@@ -177,10 +165,6 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 		if symbolLine.MatchString(line) {
 			functionName = strings.Split(line, "<")[1]
 			functionName = strings.Split(functionName, ">")[0]
-			// On macOS, function names are prefixed with underscore - strip it
-			if runtime.GOOS == "darwin" && strings.HasPrefix(functionName, "_") {
-				functionName = functionName[1:]
-			}
 			lineNumber = 0
 		} else if dataLine.MatchString(line) {
 			data := strings.Split(line, ":")[1]
@@ -227,96 +211,30 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 	builder.WriteString(buildTags)
 	t.writeHeader(&builder)
 	for _, function := range functions {
-		// Calculate return size based on type
 		returnSize := 0
 		if function.Type != "void" {
-			if sz := X86SIMDTypeSize(function.Type); sz > 0 {
-				returnSize = sz // Use actual SIMD type size
-			} else if sz, ok := supportedTypes[function.Type]; ok {
-				returnSize = sz // Use actual scalar type size
-			} else {
-				returnSize = 8 // Default 8-byte slot for pointers/unknown types
-			}
+			returnSize += 8
 		}
-
+		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
+			function.Name, returnSize, len(function.Parameters)*8))
 		registerIndex, xmmRegisterIndex, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
-		var argsBuilder strings.Builder
-
 		for _, param := range function.Parameters {
-			// Calculate slot size based on type
-			sz := 8 // Default 8-byte slot for scalars in Go ABI0
-			if !param.Pointer {
-				if simdSz := X86SIMDTypeSize(param.Type); simdSz > 0 {
-					sz = simdSz // Use actual SIMD type size
-				}
+			sz := 8
+			if param.Pointer {
+				sz = 8
+			} else {
+				sz = supportedTypes[param.Type]
 			}
-
-			// Align offset to slot size (max 16 for Go ABI0)
-			alignTo := sz
-			if alignTo > 16 {
-				alignTo = 16 // Cap alignment at 16 bytes for Go stack
+			if offset%sz != 0 {
+				offset += sz - offset%sz
 			}
-			if offset%alignTo != 0 {
-				offset += alignTo - offset%alignTo
-			}
-
-			if !param.Pointer && IsX86SIMDType(param.Type) {
-				// x86 SIMD vector type - load into XMM/YMM/ZMM register
-				if xmmRegisterIndex < len(xmmRegisters) {
-					switch {
-					case X86SIMDTypeSize(param.Type) == 64:
-						// AVX-512 (512-bit): load into ZMM via 8 MOVQs
-						// Use _N suffixes (N=offset within param) so go vet accepts different offsets
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_0+%d(FP), AX\n", param.Name, offset))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_8+%d(FP), BX\n", param.Name, offset+8))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, X14\n")) // temp
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, X14\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_16+%d(FP), AX\n", param.Name, offset+16))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_24+%d(FP), BX\n", param.Name, offset+24))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, X15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, X15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tVINSERTF128 $1, X15, Y14, Y14\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_32+%d(FP), AX\n", param.Name, offset+32))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_40+%d(FP), BX\n", param.Name, offset+40))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, X15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, X15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_48+%d(FP), AX\n", param.Name, offset+48))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_56+%d(FP), BX\n", param.Name, offset+56))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, X13\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, X13\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tVINSERTF128 $1, X13, Y15, Y15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tVINSERTF64X4 $1, Y15, Z14, %s\n", zmmRegisters[xmmRegisterIndex]))
-					case X86SIMDTypeSize(param.Type) == 32:
-						// AVX (256-bit): load into YMM via 4 MOVQs + VINSERTF128
-						// Use _N suffixes (N=offset within param) so go vet accepts different offsets
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_0+%d(FP), AX\n", param.Name, offset))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_8+%d(FP), BX\n", param.Name, offset+8))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, X14\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, X14\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_16+%d(FP), AX\n", param.Name, offset+16))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_24+%d(FP), BX\n", param.Name, offset+24))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, X15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, X15\n"))
-						argsBuilder.WriteString(fmt.Sprintf("\tVINSERTF128 $1, X15, Y14, %s\n", ymmRegisters[xmmRegisterIndex]))
-					default:
-						// SSE (128-bit): load into XMM via 2 MOVQs + PINSRQ
-						// Use _N suffixes (N=offset within param) so go vet accepts different offsets
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_0+%d(FP), AX\n", param.Name, offset))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s_8+%d(FP), BX\n", param.Name, offset+8))
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVQ AX, %s\n", xmmRegisters[xmmRegisterIndex]))
-						argsBuilder.WriteString(fmt.Sprintf("\tPINSRQ $1, BX, %s\n", xmmRegisters[xmmRegisterIndex]))
-					}
-					xmmRegisterIndex++
-				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
-				}
-			} else if !param.Pointer && (param.Type == "double" || param.Type == "float") {
+			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
 				if xmmRegisterIndex < len(xmmRegisters) {
 					if param.Type == "double" {
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
+						builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
 					} else {
-						argsBuilder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
+						builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
 					}
 					xmmRegisterIndex++
 				} else {
@@ -324,7 +242,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 			} else {
 				if registerIndex < len(registers) {
-					argsBuilder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, offset, registers[registerIndex]))
+					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, offset, registers[registerIndex]))
 					registerIndex++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
@@ -332,51 +250,15 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 			}
 			offset += sz
 		}
-
-		// Check if SIMD types are used (for stack frame alignment)
-		hasSIMD := false
-		for _, param := range function.Parameters {
-			if !param.Pointer && IsX86SIMDType(param.Type) {
-				hasSIMD = true
-				break
-			}
+		if offset%8 != 0 {
+			offset += 8 - offset%8
 		}
-		if !hasSIMD && IsX86SIMDType(function.Type) {
-			hasSIMD = true
-		}
-		// Note: Don't align offset to 16 bytes here - Go's ABI only requires 8-byte
-		// alignment for return values
-
-		// Calculate stack frame size (for spilled parameters)
-		stackOffset := 0
-		if len(stack) > 0 {
-			for i := 0; i < len(stack); i++ {
-				if simdSz := X86SIMDTypeSize(stack[i].B.Type); simdSz > 0 {
-					stackOffset += simdSz
-				} else if stack[i].B.Pointer {
-					stackOffset += 8
-				} else {
-					stackOffset += supportedTypes[stack[i].B.Type]
-				}
-			}
-		}
-		// Align stack frame
-		if hasSIMD && stackOffset%16 != 0 {
-			stackOffset += 16 - stackOffset%16
-		}
-
-		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, stackOffset, offset+returnSize))
-		builder.WriteString(argsBuilder.String())
-
-		// Push stack parameters if needed
 		if len(stack) > 0 {
 			for i := len(stack) - 1; i >= 0; i-- {
 				builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", stack[i].B.Name, stack[i].A))
 			}
 			builder.WriteString("\tPUSHQ $0\n")
 		}
-
 		for _, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
@@ -397,59 +279,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					case "float":
 						builder.WriteString(fmt.Sprintf("\tMOVSS X0, result+%d(FP)\n", offset))
 					default:
-						// Check for x86 SIMD vector return types
-						if IsX86SIMDType(function.Type) {
-							resultOffset := offset
-							switch X86SIMDTypeSize(function.Type) {
-							case 64:
-								// AVX-512 (512-bit): extract from ZMM0 via stores
-								// Use _N suffixes (N=offset within result) so go vet accepts different offsets
-								builder.WriteString("\tVEXTRACTF64X4 $0, Z0, Y14\n")
-								builder.WriteString("\tVEXTRACTF64X4 $1, Z0, Y15\n")
-								builder.WriteString("\tVEXTRACTF128 $0, Y14, X14\n")
-								builder.WriteString("\tMOVQ X14, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X14, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_0+%d(FP)\n", resultOffset))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_8+%d(FP)\n", resultOffset+8))
-								builder.WriteString("\tVEXTRACTF128 $1, Y14, X14\n")
-								builder.WriteString("\tMOVQ X14, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X14, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_16+%d(FP)\n", resultOffset+16))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_24+%d(FP)\n", resultOffset+24))
-								builder.WriteString("\tVEXTRACTF128 $0, Y15, X15\n")
-								builder.WriteString("\tMOVQ X15, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X15, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_32+%d(FP)\n", resultOffset+32))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_40+%d(FP)\n", resultOffset+40))
-								builder.WriteString("\tVEXTRACTF128 $1, Y15, X15\n")
-								builder.WriteString("\tMOVQ X15, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X15, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_48+%d(FP)\n", resultOffset+48))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_56+%d(FP)\n", resultOffset+56))
-							case 32:
-								// AVX (256-bit): extract from YMM0 via VEXTRACTF128 + MOVQ/PEXTRQ
-								// Use _N suffixes (N=offset within result) so go vet accepts different offsets
-								builder.WriteString("\tVEXTRACTF128 $0, Y0, X14\n")
-								builder.WriteString("\tMOVQ X14, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X14, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_0+%d(FP)\n", resultOffset))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_8+%d(FP)\n", resultOffset+8))
-								builder.WriteString("\tVEXTRACTF128 $1, Y0, X14\n")
-								builder.WriteString("\tMOVQ X14, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X14, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_16+%d(FP)\n", resultOffset+16))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_24+%d(FP)\n", resultOffset+24))
-							case 16:
-								// SSE (128-bit): extract from XMM0 via MOVQ + PEXTRQ
-								// Use _N suffixes (N=offset within result) so go vet accepts different offsets
-								builder.WriteString("\tMOVQ X0, AX\n")
-								builder.WriteString("\tPEXTRQ $1, X0, BX\n")
-								builder.WriteString(fmt.Sprintf("\tMOVQ AX, result_0+%d(FP)\n", resultOffset))
-								builder.WriteString(fmt.Sprintf("\tMOVQ BX, result_8+%d(FP)\n", resultOffset+8))
-							}
-						} else {
-							return fmt.Errorf("unsupported return type: %v", function.Type)
-						}
+						return fmt.Errorf("unsupported return type: %v", function.Type)
 					}
 				}
 				builder.WriteString("\tRET\n")

@@ -174,14 +174,9 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 	builder.WriteString(buildTags)
 	t.writeHeader(&builder)
 	for _, function := range functions {
-		// Calculate return size based on type
 		returnSize := 0
 		if function.Type != "void" {
-			if sz, ok := supportedTypes[function.Type]; ok {
-				returnSize = sz // Use actual scalar type size
-			} else {
-				returnSize = 8 // Default 8-byte slot for pointers/unknown types
-			}
+			returnSize += 8
 		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, len(function.Parameters)*8))

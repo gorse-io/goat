@@ -1,10 +1,3 @@
-//go:build arm64
-
-// Note: universal.c uses scalar code that compiles to register-based SysV ABI.
-// GoAT's wrapper generation is designed for SIMD intrinsics and doesn't fully
-// support translating register-based scalar code to Go's stack-based ABI0.
-// For cross-platform scalar tests, use pure Go or cgo instead.
-
 package tests
 
 import (
