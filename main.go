@@ -37,288 +37,6 @@ var supportedTypes = map[string]int{
 	"_Bool":   1,
 }
 
-// NEON vector types (128-bit / 16 bytes)
-var neon128Types = map[string]int{
-	// Integer vectors
-	"int8x16_t":  16,
-	"int16x8_t":  16,
-	"int32x4_t":  16,
-	"int64x2_t":  16,
-	"uint8x16_t": 16,
-	"uint16x8_t": 16,
-	"uint32x4_t": 16,
-	"uint64x2_t": 16,
-	// Float vectors
-	"float32x4_t": 16,
-	"float64x2_t": 16,
-	// Half-precision (float16)
-	"float16x8_t": 16,
-	// BFloat16
-	"bfloat16x8_t": 16,
-	// Polynomial types
-	"poly8x16_t": 16,
-	"poly16x8_t": 16,
-	"poly64x2_t": 16,
-	"poly128_t":  16,
-}
-
-// NEON vector types (64-bit / 8 bytes)
-var neon64Types = map[string]int{
-	// Integer vectors
-	"int8x8_t":   8,
-	"int16x4_t":  8,
-	"int32x2_t":  8,
-	"int64x1_t":  8,
-	"uint8x8_t":  8,
-	"uint16x4_t": 8,
-	"uint32x2_t": 8,
-	"uint64x1_t": 8,
-	// Float vectors
-	"float32x2_t": 8,
-	"float64x1_t": 8,
-	// Half-precision (float16)
-	"float16x4_t": 8,
-	// BFloat16
-	"bfloat16x4_t": 8,
-	// Polynomial types
-	"poly8x8_t":  8,
-	"poly16x4_t": 8,
-	"poly64x1_t": 8,
-}
-
-// NEON array types (multiple 128-bit vectors)
-var neonArrayTypes = map[string]int{
-	// 2 vectors (32 bytes)
-	"int8x16x2_t":    32,
-	"int16x8x2_t":    32,
-	"int32x4x2_t":    32,
-	"int64x2x2_t":    32,
-	"uint8x16x2_t":   32,
-	"uint16x8x2_t":   32,
-	"uint32x4x2_t":   32,
-	"uint64x2x2_t":   32,
-	"float32x4x2_t":  32,
-	"float64x2x2_t":  32,
-	"float16x8x2_t":  32,
-	"bfloat16x8x2_t": 32,
-	"poly8x16x2_t":   32,
-	"poly16x8x2_t":   32,
-	"poly64x2x2_t":   32,
-	// 3 vectors (48 bytes)
-	"int8x16x3_t":    48,
-	"int16x8x3_t":    48,
-	"int32x4x3_t":    48,
-	"int64x2x3_t":    48,
-	"uint8x16x3_t":   48,
-	"uint16x8x3_t":   48,
-	"uint32x4x3_t":   48,
-	"uint64x2x3_t":   48,
-	"float32x4x3_t":  48,
-	"float64x2x3_t":  48,
-	"float16x8x3_t":  48,
-	"bfloat16x8x3_t": 48,
-	"poly8x16x3_t":   48,
-	"poly16x8x3_t":   48,
-	"poly64x2x3_t":   48,
-	// 4 vectors (64 bytes)
-	"int8x16x4_t":    64,
-	"int16x8x4_t":    64,
-	"int32x4x4_t":    64,
-	"int64x2x4_t":    64,
-	"uint8x16x4_t":   64,
-	"uint16x8x4_t":   64,
-	"uint32x4x4_t":   64,
-	"uint64x2x4_t":   64,
-	"float32x4x4_t":  64,
-	"float64x2x4_t":  64,
-	"float16x8x4_t":  64,
-	"bfloat16x8x4_t": 64,
-	"poly8x16x4_t":   64,
-	"poly16x8x4_t":   64,
-	"poly64x2x4_t":   64,
-}
-
-// x86 SSE types (128-bit / 16 bytes)
-var sse128Types = map[string]int{
-	"__m128":  16, // 4x float32
-	"__m128d": 16, // 2x float64
-	"__m128i": 16, // various integer types
-}
-
-// x86 AVX types (256-bit / 32 bytes)
-var avx256Types = map[string]int{
-	"__m256":  32, // 8x float32
-	"__m256d": 32, // 4x float64
-	"__m256i": 32, // various integer types
-}
-
-// x86 AVX-512 types (512-bit / 64 bytes)
-var avx512Types = map[string]int{
-	"__m512":  64, // 16x float32
-	"__m512d": 64, // 8x float64
-	"__m512i": 64, // various integer types
-}
-
-// NEON 64-bit array types (multiple 64-bit vectors)
-var neon64ArrayTypes = map[string]int{
-	// 2 vectors (16 bytes)
-	"int8x8x2_t":     16,
-	"int16x4x2_t":    16,
-	"int32x2x2_t":    16,
-	"int64x1x2_t":    16,
-	"uint8x8x2_t":    16,
-	"uint16x4x2_t":   16,
-	"uint32x2x2_t":   16,
-	"uint64x1x2_t":   16,
-	"float32x2x2_t":  16,
-	"float64x1x2_t":  16,
-	"float16x4x2_t":  16,
-	"bfloat16x4x2_t": 16,
-	"poly8x8x2_t":    16,
-	"poly16x4x2_t":   16,
-	"poly64x1x2_t":   16,
-	// 3 vectors (24 bytes)
-	"int8x8x3_t":     24,
-	"int16x4x3_t":    24,
-	"int32x2x3_t":    24,
-	"int64x1x3_t":    24,
-	"uint8x8x3_t":    24,
-	"uint16x4x3_t":   24,
-	"uint32x2x3_t":   24,
-	"uint64x1x3_t":   24,
-	"float32x2x3_t":  24,
-	"float64x1x3_t":  24,
-	"float16x4x3_t":  24,
-	"bfloat16x4x3_t": 24,
-	"poly8x8x3_t":    24,
-	"poly16x4x3_t":   24,
-	"poly64x1x3_t":   24,
-	// 4 vectors (32 bytes)
-	"int8x8x4_t":     32,
-	"int16x4x4_t":    32,
-	"int32x2x4_t":    32,
-	"int64x1x4_t":    32,
-	"uint8x8x4_t":    32,
-	"uint16x4x4_t":   32,
-	"uint32x2x4_t":   32,
-	"uint64x1x4_t":   32,
-	"float32x2x4_t":  32,
-	"float64x1x4_t":  32,
-	"float16x4x4_t":  32,
-	"bfloat16x4x4_t": 32,
-	"poly8x8x4_t":    32,
-	"poly16x4x4_t":   32,
-	"poly64x1x4_t":   32,
-}
-
-// IsNeonType returns true if the type is any NEON vector type
-func IsNeonType(t string) bool {
-	if _, ok := neon128Types[t]; ok {
-		return true
-	}
-	if _, ok := neon64Types[t]; ok {
-		return true
-	}
-	if _, ok := neonArrayTypes[t]; ok {
-		return true
-	}
-	if _, ok := neon64ArrayTypes[t]; ok {
-		return true
-	}
-	return false
-}
-
-// NeonTypeSize returns the size in bytes for a NEON type, or 0 if not a NEON type
-func NeonTypeSize(t string) int {
-	if sz, ok := neon128Types[t]; ok {
-		return sz
-	}
-	if sz, ok := neon64Types[t]; ok {
-		return sz
-	}
-	if sz, ok := neonArrayTypes[t]; ok {
-		return sz
-	}
-	if sz, ok := neon64ArrayTypes[t]; ok {
-		return sz
-	}
-	return 0
-}
-
-// NeonVectorCount returns the number of vectors in a NEON type (1 for single, 2-4 for arrays)
-func NeonVectorCount(t string) int {
-	if _, ok := neon128Types[t]; ok {
-		return 1
-	}
-	if _, ok := neon64Types[t]; ok {
-		return 1
-	}
-	// Check array types by suffix
-	if strings.HasSuffix(t, "x2_t") {
-		return 2
-	}
-	if strings.HasSuffix(t, "x3_t") {
-		return 3
-	}
-	if strings.HasSuffix(t, "x4_t") {
-		return 4
-	}
-	return 0
-}
-
-// IsNeon64Type returns true if this is a 64-bit (not 128-bit) NEON base type
-func IsNeon64Type(t string) bool {
-	if _, ok := neon64Types[t]; ok {
-		return true
-	}
-	if _, ok := neon64ArrayTypes[t]; ok {
-		return true
-	}
-	return false
-}
-
-// IsX86SIMDType returns true if the type is any x86 SIMD vector type
-func IsX86SIMDType(t string) bool {
-	if _, ok := sse128Types[t]; ok {
-		return true
-	}
-	if _, ok := avx256Types[t]; ok {
-		return true
-	}
-	if _, ok := avx512Types[t]; ok {
-		return true
-	}
-	return false
-}
-
-// X86SIMDTypeSize returns the size in bytes for an x86 SIMD type, or 0 if not an x86 SIMD type
-func X86SIMDTypeSize(t string) int {
-	if sz, ok := sse128Types[t]; ok {
-		return sz
-	}
-	if sz, ok := avx256Types[t]; ok {
-		return sz
-	}
-	if sz, ok := avx512Types[t]; ok {
-		return sz
-	}
-	return 0
-}
-
-// X86SIMDAlignment returns the required alignment for an x86 SIMD type
-func X86SIMDAlignment(t string) int {
-	if _, ok := sse128Types[t]; ok {
-		return 16
-	}
-	if _, ok := avx256Types[t]; ok {
-		return 32
-	}
-	if _, ok := avx512Types[t]; ok {
-		return 64
-	}
-	return 0
-}
-
 type TranslateUnit struct {
 	Source     string
 	Assembly   string
@@ -363,30 +81,6 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 				prologue.WriteString(fmt.Sprintf("typedef char v%sm%d_t;\n", typeStr, i))
 			}
 		}
-	}
-	// Add definitions for ARM64 to help parser handle arm_neon.h
-	if runtime.GOARCH == "arm64" {
-		// Define __bf16 for arm_bf16.h (compiler built-in type)
-		prologue.WriteString("typedef short __bf16;\n")
-		// Define __fp16 for arm_fp16.h
-		prologue.WriteString("typedef short __fp16;\n")
-	}
-	// Add definitions for AMD64 to help parser handle x86 intrinsics
-	if runtime.GOARCH == "amd64" {
-		// Define GOAT_PARSER to skip includes during parsing
-		// The C file should use: #ifndef GOAT_PARSER / #include <immintrin.h> / #endif
-		prologue.WriteString("#define GOAT_PARSER 1\n")
-		// Define x86 SIMD types as opaque structs for the parser
-		// The actual types are compiler built-ins, but we just need names for parsing
-		prologue.WriteString("typedef struct { char _[16]; } __m128;\n")
-		prologue.WriteString("typedef struct { char _[16]; } __m128d;\n")
-		prologue.WriteString("typedef struct { char _[16]; } __m128i;\n")
-		prologue.WriteString("typedef struct { char _[32]; } __m256;\n")
-		prologue.WriteString("typedef struct { char _[32]; } __m256d;\n")
-		prologue.WriteString("typedef struct { char _[32]; } __m256i;\n")
-		prologue.WriteString("typedef struct { char _[64]; } __m512;\n")
-		prologue.WriteString("typedef struct { char _[64]; } __m512d;\n")
-		prologue.WriteString("typedef struct { char _[64]; } __m512i;\n")
 	}
 	ast, err := cc.Parse(cfg, []cc.Source{
 		{Name: "<predefined>", Value: cfg.Predefined},
@@ -455,15 +149,7 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 			case "int64_t", "long":
 				builder.WriteString(" (result int64)")
 			default:
-				// Check for NEON vector types
-				if sz := NeonTypeSize(function.Type); sz > 0 {
-					builder.WriteString(fmt.Sprintf(" (result [%d]byte)", sz))
-				} else if sz := X86SIMDTypeSize(function.Type); sz > 0 {
-					// Check for x86 SIMD vector types
-					builder.WriteString(fmt.Sprintf(" (result [%d]byte)", sz))
-				} else {
-					return fmt.Errorf("unsupported return type: %v", function.Type)
-				}
+				return fmt.Errorf("unsupported return type: %v", function.Type)
 			}
 		}
 		builder.WriteRune('\n')
@@ -485,9 +171,8 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 }
 
 func (t *TranslateUnit) compile(args ...string) error {
-	args = append(args, "-mno-red-zone", "-mllvm", "-inline-threshold=1000",
-		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin",
-		"-fomit-frame-pointer")
+	args = append(args, "-mno-red-zone", "-mstackrealign", "-mllvm", "-inline-threshold=1000",
+		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	if runtime.GOARCH == "arm64" {
 		// R18 is the "platform register", reserved on the Apple platform.
 		// See https://go.dev/doc/asm#arm64
@@ -542,16 +227,6 @@ type ParameterType struct {
 func (p ParameterType) String() string {
 	if p.Pointer {
 		return "unsafe.Pointer"
-	}
-	// Check for NEON vector types first
-	if sz := NeonTypeSize(p.Type); sz > 0 {
-		// NEON vectors are passed as fixed-size byte arrays in Go
-		return fmt.Sprintf("[%d]byte", sz)
-	}
-	// Check for x86 SIMD vector types
-	if sz := X86SIMDTypeSize(p.Type); sz > 0 {
-		// x86 SIMD vectors are passed as fixed-size byte arrays in Go
-		return fmt.Sprintf("[%d]byte", sz)
 	}
 	switch p.Type {
 	case "_Bool":
@@ -619,8 +294,7 @@ func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]P
 		paramType = declaration.DeclarationSpecifiers.TypeSpecifier.Token.SrcStr()
 	}
 	isPointer := declaration.Declarator.Pointer != nil
-	// Accept scalar types, NEON vector types, x86 SIMD types, or pointers
-	if _, ok := supportedTypes[paramType]; !ok && !IsNeonType(paramType) && !IsX86SIMDType(paramType) && !isPointer {
+	if _, ok := supportedTypes[paramType]; !ok && !isPointer {
 		position := declaration.Position()
 		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v",
 			position.Filename, position.Line+t.Offset, position.Column, paramType)
