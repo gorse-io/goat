@@ -103,4 +103,5 @@ jobs:
           QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
         run: |
           cd tests
-          qemu-riscv64-static go test -v
+          GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go test -c -o tests.test
+          qemu-riscv64-static ./tests.test -test.v
