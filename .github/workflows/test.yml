@@ -78,21 +78,30 @@ jobs:
           go test -C ./tests -v
 
   riscv:
-    name: ubuntu-24.04-riscv
+    name: qemu-riscv64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: uraimo/run-on-arch-action@v3
+      - uses: actions/setup-go@v4
+      - name: Install dependencies
+        uses: ConorMacBride/install-package@v1
         with:
-          arch: riscv64
-          distro: ubuntu24.04
-          githubToken: ${{ github.token }}
-          dockerRunArgs: |
-            --volume "${PWD}:/opt/goat"
-          install: |
-            apt-get update
-            apt-get install -y clang golang
-          run: |
-            cd /opt/goat
-            go run . tests/src/universal.c -o tests -march=rv64imafd
-            go test -C ./tests -v
+          apt: qemu-user-static clang lld binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+      - name: Cross-compile GOAT for RISC-V
+        run: GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go build -o goat .
+      - name: Generate RISC-V assembly with GOAT
+        env:
+          CC: riscv64-linux-gnu-gcc
+          CXX: riscv64-linux-gnu-g++
+          QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
+          OBJDUMP: /usr/bin/riscv64-linux-gnu-objdump
+          CLANG: /usr/bin/clang
+        run: |
+          qemu-riscv64-static ./goat tests/src/universal.c -o tests -march=rv64imafd
+      - name: Run tests with QEMU
+        env:
+          QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
+        run: |
+          cd tests
+          GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go test -c -o tests.test
+          qemu-riscv64-static ./tests.test -test.v
