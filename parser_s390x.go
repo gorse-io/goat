@@ -227,9 +227,16 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
-		// Don't allocate extra stack for overflow parameters
-		// C compiler handles this via aghi instruction in the function prologue
-		// Just load overflow parameters into registers for C ABI compatibility
+		// For overflow parameters, we need to modify the C code's access offsets
+		// C expects overflow at R11 + high_offset (e.g., 360)
+		// But Go places params at FP + param_offset
+		// We need to calculate the delta and adjust offsets in the generated code
+		// 
+		// The issue: C's high_offset (360) points outside the frame
+		// We need to redirect these accesses to FP-relative locations
+		//
+		// For now, we load overflow params to R7 and document the limitation
+		// A full fix requires modifying the byte offsets in C code
 		for i := 0; i < len(stack); i++ {
 			builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R7\n", stack[i].B.Name, stack[i].A))
 		}
