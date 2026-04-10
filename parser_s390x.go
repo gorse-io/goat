@@ -14,6 +14,7 @@
 package main
 
 import (
+	"strconv"
 	"bufio"
 	"fmt"
 	"os"
@@ -49,13 +50,20 @@ var (
 type Line struct {
 	Labels   []string
 	Assembly string
-	Binary   string
+	Binary   []string
 }
 
 func (line *Line) String() string {
 	var builder strings.Builder
 	builder.WriteString("\t")
-	builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
+	// s390x instructions are 2, 4, or 6 bytes
+	// Use BYTE pseudo-instruction for each byte
+	for i, b := range line.Binary {
+		if i > 0 {
+			builder.WriteString("\n\t")
+		}
+		builder.WriteString(fmt.Sprintf("BYTE $0x%v", b))
+	}
 	builder.WriteString("\t// ")
 	builder.WriteString(line.Assembly)
 	builder.WriteString("\n")
@@ -100,6 +108,17 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 		} else if codeLine.MatchString(line) {
 			asm := strings.Split(line, "//")[0]
 			asm = strings.TrimSpace(asm)
+			// Extract stack size from "aghi %r15, -NNN" instruction
+			if strings.HasPrefix(asm, "aghi") && strings.Contains(asm, "%r15") {
+				parts := strings.Fields(asm)
+				for i, p := range parts {
+					if strings.HasPrefix(p, "-") && i > 0 {
+						if size, err := strconv.Atoi(p[1:]); err == nil {
+							stackSizes[functionName] = size
+						}
+					}
+				}
+			}
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
 			} else {
@@ -134,7 +153,7 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 			data = strings.TrimSpace(data)
 			splits := strings.Split(data, " ")
 			var (
-				binary   string
+				binary   []string
 				assembly string
 			)
 			for i, s := range splits {
@@ -143,7 +162,11 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 					assembly = strings.TrimSpace(assembly)
 					break
 				}
-				binary = s
+				binary = append(binary, s)
+			}
+			// Skip nop instructions (nopr on s390x)
+			if strings.Contains(assembly, "nop") {
+				continue
 			}
 			if lineNumber >= len(functions[functionName]) {
 				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
@@ -165,8 +188,13 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if function.Type != "void" {
 			returnSize += 8
 		}
+		// Use stack size from C compiler if available, add padding for Go runtime
+		frameSize := returnSize
+		if function.StackSize > 0 {
+			frameSize = function.StackSize + 8 // Add 8 bytes for Go runtime linkage
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, len(function.Parameters)*8))
+			function.Name, frameSize, len(function.Parameters)*8+returnSize))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, Parameter]
 		for _, param := range function.Parameters {
@@ -199,26 +227,11 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
-		frameSize := 0
-		if len(stack) > 0 {
-			for i := 0; i < len(stack); i++ {
-				if stack[i].B.Pointer {
-					frameSize += 8
-				} else {
-					frameSize += supportedTypes[stack[i].B.Type]
-				}
-			}
-			builder.WriteString(fmt.Sprintf("\tADD $-%d, SP, SP\n", frameSize))
-			stackoffset := 0
-			for i := 0; i < len(stack); i++ {
-				builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R7\n", stack[i].B.Name, frameSize+stack[i].A))
-				builder.WriteString(fmt.Sprintf("\tMOVD R7, %d(SP)\n", stackoffset))
-				if stack[i].B.Pointer {
-					stackoffset += 8
-				} else {
-					stackoffset += supportedTypes[stack[i].B.Type]
-				}
-			}
+		// Don't allocate extra stack for overflow parameters
+		// C compiler handles this via aghi instruction in the function prologue
+		// Just load overflow parameters into registers for C ABI compatibility
+		for i := 0; i < len(stack); i++ {
+			builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R7\n", stack[i].B.Name, stack[i].A))
 		}
 		for _, line := range function.Lines {
 			for _, label := range line.Labels {
@@ -226,9 +239,6 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				builder.WriteString(":\n")
 			}
 			if line.Assembly == "br\t%r14" || line.Assembly == "br r14" {
-				if frameSize > 0 {
-					builder.WriteString(fmt.Sprintf("\tADD $%d, SP, SP\n", frameSize))
-				}
 				if function.Type != "void" {
 					switch function.Type {
 					case "int64_t", "long", "_Bool":
