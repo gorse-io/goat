@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/gorse-io/goat/internal/types"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
 )
@@ -143,7 +144,7 @@ func (t *TranslateUnit) generateGoAssemblyRv64(path string, functions []Function
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = supportedTypes[param.Type]
+				sz = types.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz
@@ -182,7 +183,7 @@ func (t *TranslateUnit) generateGoAssemblyRv64(path string, functions []Function
 				if stack[i].B.Pointer {
 					frameSize += 8
 				} else {
-					frameSize += supportedTypes[stack[i].B.Type]
+					frameSize += types.SupportedTypes[stack[i].B.Type]
 				}
 			}
 			builder.WriteString(fmt.Sprintf("\tADDI -%d, SP, SP\n", frameSize))
@@ -193,7 +194,7 @@ func (t *TranslateUnit) generateGoAssemblyRv64(path string, functions []Function
 				if stack[i].B.Pointer {
 					stackoffset += 8
 				} else {
-					stackoffset += supportedTypes[stack[i].B.Type]
+					stackoffset += types.SupportedTypes[stack[i].B.Type]
 				}
 			}
 		}

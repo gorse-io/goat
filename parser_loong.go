@@ -23,6 +23,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/gorse-io/goat/internal/types"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
 )
@@ -192,7 +193,7 @@ func (t *TranslateUnit) generateGoAssemblyLoong(path string, functions []Functio
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = supportedTypes[param.Type]
+				sz = types.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz
@@ -227,7 +228,7 @@ func (t *TranslateUnit) generateGoAssemblyLoong(path string, functions []Functio
 				if stack[i].B.Pointer {
 					frameSize += 8
 				} else {
-					frameSize += supportedTypes[stack[i].B.Type]
+					frameSize += types.SupportedTypes[stack[i].B.Type]
 				}
 			}
 			builder.WriteString(fmt.Sprintf("\tADDV $-%d, R3\n", frameSize))
@@ -238,7 +239,7 @@ func (t *TranslateUnit) generateGoAssemblyLoong(path string, functions []Functio
 				if stack[i].B.Pointer {
 					stackoffset += 8
 				} else {
-					stackoffset += supportedTypes[stack[i].B.Type]
+					stackoffset += types.SupportedTypes[stack[i].B.Type]
 				}
 			}
 		}

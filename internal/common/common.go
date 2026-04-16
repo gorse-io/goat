@@ -6,46 +6,49 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by local law or agreed to in writing, software
+// Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package main
+
+package common
 
 import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/gorse-io/goat/internal/types"
 )
 
 // Shared regex patterns for objdump parsing
 var (
-	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	SymbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
+	DataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 )
 
-// sanitizeAsm cleans up assembly instruction text
-func sanitizeAsm(asm string) string {
+// SanitizeAsm cleans up assembly instruction text
+func SanitizeAsm(asm string) string {
 	asm = strings.TrimSpace(asm)
 	asm = strings.Split(asm, "//")[0]
 	asm = strings.TrimSpace(asm)
 	return asm
 }
 
-// parseObjectDump parses objdump output and fills Binary field
-func parseObjectDump(dump string, functions map[string][]Line) error {
+// ParseObjectDump parses objdump output and fills Binary field
+func ParseObjectDump(dump string, functions map[string][]types.Line) error {
 	var (
 		functionName string
 		lineNumber   int
 	)
 	for i, line := range strings.Split(dump, "\n") {
 		line = strings.TrimSpace(line)
-		if symbolLine.MatchString(line) {
+		if SymbolLine.MatchString(line) {
 			functionName = strings.Split(line, "<")[1]
 			functionName = strings.Split(functionName, ">")[0]
 			lineNumber = 0
-		} else if dataLine.MatchString(line) {
+		} else if DataLine.MatchString(line) {
 			data := strings.Split(line, ":")[1]
 			data = strings.TrimSpace(data)
 			splits := strings.Split(data, " ")
@@ -76,7 +79,7 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 					}
 				}
 			}
-			assembly = sanitizeAsm(strings.TrimSpace(assembly))
+			assembly = SanitizeAsm(strings.TrimSpace(assembly))
 			if strings.Contains(assembly, "nop") || assembly == "" ||
 				strings.HasPrefix(assembly, "nop") || assembly == "xchg   %ax,%ax" ||
 				assembly == "cs nopw 0x0(%rax,%rax,1)" {

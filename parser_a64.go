@@ -16,32 +16,22 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"unicode"
 
+	"github.com/gorse-io/goat/internal/types"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
 )
 
-const (
-)
-
 var (
-	arm64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
-	arm64NameLine      = regexp.MustCompile(`^\w+:.+$`)
-	arm64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	arm64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
-	arm64JmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
-
-
 	arm64Registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
 	arm64FpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
+	arm64JmpLine     = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 )
-
 
 func formatLineARM64(line *Line) string {
 	var builder strings.Builder
@@ -65,63 +55,6 @@ func formatLineARM64(line *Line) string {
 	return builder.String()
 }
 
-func parseAssemblyA64(path string) (map[string][]Line, map[string]int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func(file *os.File) {
-		if err = file.Close(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}(file)
-
-	var (
-		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]Line)
-		functionName string
-		labelName    string
-	)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if arm64AttributeLine.MatchString(line) {
-			continue
-		} else if arm64NameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]Line, 0)
-		} else if arm64LabelLine.MatchString(line) {
-			labelName = strings.Split(line, ":")[0]
-			labelName = labelName[1:]
-			lines := functions[functionName]
-			if len(lines) == 1 || lines[len(lines)-1].Assembly != "" {
-				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
-			} else {
-				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
-			}
-		} else if arm64CodeLine.MatchString(line) {
-			asm := strings.Split(line, "//")[0]
-			asm = strings.TrimSpace(asm)
-			if labelName == "" {
-				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
-			} else {
-				lines := functions[functionName]
-				if len(lines) > 0 {
-					lines[len(lines)-1].Assembly = asm
-				}
-				labelName = ""
-			}
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		return nil, nil, err
-	}
-	return functions, stackSizes, nil
-}
-
-
 func (t *TranslateUnit) generateGoAssemblyA64(path string, functions []Function) error {
 	// generate code
 	var builder strings.Builder
@@ -140,7 +73,7 @@ func (t *TranslateUnit) generateGoAssemblyA64(path string, functions []Function)
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = supportedTypes[param.Type]
+				sz = types.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz
@@ -177,7 +110,7 @@ func (t *TranslateUnit) generateGoAssemblyA64(path string, functions []Function)
 				if stack[i].B.Pointer {
 					stackOffset += 8
 				} else {
-					stackOffset += supportedTypes[stack[i].B.Type]
+					stackOffset += types.SupportedTypes[stack[i].B.Type]
 				}
 			}
 		}

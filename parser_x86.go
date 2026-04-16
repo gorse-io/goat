@@ -16,30 +16,19 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
+	"github.com/gorse-io/goat/internal/types"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
 )
 
-const (
-)
-
 var (
-	amd64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
-	amd64NameLine      = regexp.MustCompile(`^\w+:.+$`)
-	amd64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	amd64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
-
-
 	amd64Registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
 	amd64XmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
 )
-
 
 func formatLineAMD64(line *Line) string {
 	var builder strings.Builder
@@ -79,68 +68,6 @@ func formatLineAMD64(line *Line) string {
 	return builder.String()
 }
 
-func parseAssemblyX86(path string) (map[string][]Line, map[string]int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func(file *os.File) {
-		if err = file.Close(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}(file)
-
-	var (
-		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]Line)
-		functionName string
-		labelName    string
-	)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if amd64AttributeLine.MatchString(line) {
-			continue
-		} else if amd64NameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]Line, 0)
-			labelName = ""
-		} else if amd64LabelLine.MatchString(line) {
-			labelName = strings.Split(line, ":")[0]
-			labelName = labelName[1:]
-			lines := functions[functionName]
-			if len(lines) > 0 && lines[len(lines)-1].Assembly == "" {
-				// If the last line is a label, append the label to the last line.
-				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
-			} else {
-				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
-			}
-		} else if amd64CodeLine.MatchString(line) {
-			asm := sanitizeAsm(line)
-			if labelName == "" {
-				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
-			} else {
-				lines := functions[functionName]
-				if len(lines) == 0 {
-					functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
-					lines = functions[functionName]
-				}
-
-				lines[len(lines)-1].Assembly = asm
-				labelName = ""
-			}
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		return nil, nil, err
-	}
-	return functions, stackSizes, nil
-}
-
-
-
 func (t *TranslateUnit) generateGoAssemblyX86(path string, functions []Function) error {
 	// generate code
 	var builder strings.Builder
@@ -160,7 +87,7 @@ func (t *TranslateUnit) generateGoAssemblyX86(path string, functions []Function)
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = supportedTypes[param.Type]
+				sz = types.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz

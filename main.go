@@ -24,25 +24,18 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gorse-io/goat/internal/common"
+	"github.com/gorse-io/goat/internal/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/cpu"
 	"modernc.org/cc/v4"
 )
 
-// Line represents a line of assembly code
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   []string
-}
-
-var supportedTypes = map[string]int{
-	"int64_t": 8,
-	"long":    8,
-	"float":   4,
-	"double":  8,
-	"_Bool":   1,
-}
+// Type aliases for shared types
+type Line = types.Line
+type Parameter = types.Parameter
+type ParameterType = types.ParameterType
+type Function = types.Function
 
 type TranslateUnit struct {
 	Source     string
@@ -234,7 +227,7 @@ func (t *TranslateUnit) Translate() error {
 	if err != nil {
 		return err
 	}
-	err = parseObjectDump(dump, assembly)
+	err = common.ParseObjectDump(dump, assembly)
 	if err != nil {
 		return err
 	}
@@ -243,45 +236,6 @@ func (t *TranslateUnit) Translate() error {
 		functions[i].StackSize = stackSizes[name.Name]
 	}
 	return t.generateGoAssemblyForTarget(t.Arch.GoArch, t.GoAssembly, functions)
-}
-
-type ParameterType struct {
-	Type    string
-	Pointer bool
-}
-
-func (p ParameterType) String() string {
-	if p.Pointer {
-		return "unsafe.Pointer"
-	}
-	switch p.Type {
-	case "_Bool":
-		return "bool"
-	case "int64_t", "long":
-		return "int64"
-	case "double":
-		return "float64"
-	case "float":
-		return "float32"
-	default:
-		_, _ = fmt.Fprintln(os.Stderr, "unsupported param type:", p.Type)
-		os.Exit(1)
-		return ""
-	}
-}
-
-type Parameter struct {
-	Name string
-	ParameterType
-}
-
-type Function struct {
-	Name       string
-	Position   int
-	Type       string
-	Parameters []Parameter
-	Lines      []Line
-	StackSize  int
 }
 
 // convertFunction extracts the function definition from cc.DirectDeclarator.
@@ -320,7 +274,7 @@ func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]P
 		paramType = declaration.DeclarationSpecifiers.TypeSpecifier.Token.SrcStr()
 	}
 	isPointer := declaration.Declarator.Pointer != nil
-	if _, ok := supportedTypes[paramType]; !ok && !isPointer {
+	if _, ok := types.SupportedTypes[paramType]; !ok && !isPointer {
 		position := declaration.Position()
 		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v",
 			position.Filename, position.Line+t.Offset, position.Column, paramType)
