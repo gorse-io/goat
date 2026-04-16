@@ -26,8 +26,6 @@ import (
 )
 
 const (
-	buildTags   = "//go:build !noasm && arm64\n"
-	buildTarget = "arm64-linux-gnu"
 )
 
 var (
@@ -72,7 +70,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
+func parseAssemblyARM64(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err

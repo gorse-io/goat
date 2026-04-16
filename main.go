@@ -69,12 +69,16 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := cc.NewConfig(runtime.GOOS, runtime.GOARCH)
+	arch, err := selectedArch()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := cc.NewConfig(runtime.GOOS, arch.GoArch)
 	if err != nil {
 		return nil, err
 	}
 	var prologue strings.Builder
-	if cpu.RISCV64.HasV {
+	if arch.GoArch == "riscv64" && cpu.RISCV64.HasV {
 		prologue.WriteString("#define __riscv_vector 1\n")
 		for _, typeStr := range []string{"int64", "uint64", "int32", "uint32", "int16", "uint16", "int8", "uint8", "float64", "float32", "float16"} {
 			for i := 1; i <= 8; i *= 2 {
@@ -116,7 +120,11 @@ func (t *TranslateUnit) parseSource() ([]Function, error) {
 func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(buildTags)
+	arch, err := selectedArch()
+	if err != nil {
+		return err
+	}
+	builder.WriteString(arch.BuildTags)
 	t.writeHeader(&builder)
 	builder.WriteString(fmt.Sprintf("package %v\n", t.Package))
 	if hasPointer(functions) {
@@ -173,24 +181,32 @@ func (t *TranslateUnit) generateGoStubs(functions []Function) error {
 func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mno-red-zone", "-mstackrealign", "-mllvm", "-inline-threshold=1000",
 		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
-	if runtime.GOARCH == "arm64" {
+	arch, err := selectedArch()
+	if err != nil {
+		return err
+	}
+	if arch.GoArch == "arm64" {
 		// R18 is the "platform register", reserved on the Apple platform.
 		// See https://go.dev/doc/asm#arm64
 		args = append(args, "-ffixed-x18")
-	} else if runtime.GOARCH == "riscv64" {
+	} else if arch.GoArch == "riscv64" {
 		// X27 points to the Go routine structure.
 		args = append(args, "-ffixed-x27")
 	}
 	clangPath := getClangPath()
-	_, err := runCommand(clangPath, append([]string{"-S", "-target", buildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
+	_, err := runCommand(clangPath, append([]string{"-S", "-target", arch.BuildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {
 		return err
 	}
-	_, err = runCommand(clangPath, append([]string{"-target", buildTarget, "-c", t.Assembly, "-o", t.Object}, args...)...)
+	_, err = runCommand(clangPath, append([]string{"-target", arch.BuildTarget, "-c", t.Assembly, "-o", t.Object}, args...)...)
 	return err
 }
 
 func (t *TranslateUnit) Translate() error {
+	arch, err := selectedArch()
+	if err != nil {
+		return err
+	}
 	functions, err := t.parseSource()
 	if err != nil {
 		return err
@@ -201,7 +217,7 @@ func (t *TranslateUnit) Translate() error {
 	if err = t.compile(t.Options...); err != nil {
 		return err
 	}
-	assembly, stackSizes, err := parseAssembly(t.Assembly)
+	assembly, stackSizes, err := parseAssemblyForTarget(arch.GoArch, t.Assembly)
 	if err != nil {
 		return err
 	}
@@ -434,6 +450,7 @@ func init() {
 	command.PersistentFlags().StringSliceP("extra-option", "e", nil, "extra option for clang")
 	command.PersistentFlags().IntP("optimize-level", "O", 0, "optimization level for clang")
 	command.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "if set, increase verbosity level")
+	command.PersistentFlags().StringVarP(&targetArch, "target", "t", runtime.GOARCH, "target architecture in Go GOARCH form (amd64, arm64, loong64, riscv64)")
 }
 
 func main() {

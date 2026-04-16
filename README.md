@@ -41,7 +41,7 @@ Install LLVM and MinGW from the official website or use [Chocolatey](https://cho
 choco install llvm mingw
 ```
 
-Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.
+GoAT supports cross-compilation with the `--target` flag. The target value uses Go `GOARCH` names such as `amd64`, `arm64`, `riscv64`, and `loong64`. If omitted, GoAT defaults to the current architecture.
 
 ## Install
 
@@ -68,6 +68,7 @@ Flags:
   -m, --machine-option strings   machine option for clang
   -O, --optimize-level int       optimization level for clang
   -o, --output string            output directory of generated files
+  -t, --target string            target architecture in Go GOARCH form (amd64, arm64, loong64, riscv64) (default current GOARCH)
   -v, --verbose                  if set, increase verbosity level
 ```
 
@@ -87,6 +88,9 @@ You can use GoAT to transpile this C function to Go assembly code with the follo
 
 ```bash
 goat src/add.c -o . -O3 -mavx
+
+# Cross-compile assembly/stubs for ARM64
+goat src/add.c -o . -O3 --target arm64
 ```
 
 > [!WARNING]
