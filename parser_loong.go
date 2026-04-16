@@ -16,10 +16,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"unicode"
 
@@ -28,16 +26,7 @@ import (
 	"github.com/samber/lo"
 )
 
-const (
-)
-
 var (
-	loong64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
-	loong64NameLine      = regexp.MustCompile(`^\w+:.+$`)
-	loong64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	loong64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
-
-
 	loong64Registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
 	loong64FpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 
@@ -81,7 +70,6 @@ var (
 	}
 )
 
-
 func formatLineLOONG64(line *Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
@@ -116,63 +104,6 @@ func formatLineLOONG64(line *Line) string {
 	builder.WriteString("\n")
 	return builder.String()
 }
-
-func parseAssemblyLoong(path string) (map[string][]Line, map[string]int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func(file *os.File) {
-		if err = file.Close(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}(file)
-
-	var (
-		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]Line)
-		functionName string
-		labelName    string
-	)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if loong64AttributeLine.MatchString(line) {
-			continue
-		} else if loong64NameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]Line, 0)
-		} else if loong64LabelLine.MatchString(line) {
-			labelName = strings.Split(line, ":")[0]
-			labelName = labelName[1:]
-			lines := functions[functionName]
-			if len(lines) == 1 || lines[len(lines)-1].Assembly != "" {
-				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
-			} else {
-				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
-			}
-		} else if loong64CodeLine.MatchString(line) {
-			asm := strings.Split(line, "//")[0]
-			asm = strings.TrimSpace(asm)
-			if labelName == "" {
-				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
-			} else {
-				lines := functions[functionName]
-				if len(lines) > 0 {
-					lines[len(lines)-1].Assembly = asm
-				}
-				labelName = ""
-			}
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		return nil, nil, err
-	}
-	return functions, stackSizes, nil
-}
-
 
 func (t *TranslateUnit) generateGoAssemblyLoong(path string, functions []Function) error {
 	// generate code
