@@ -29,6 +29,13 @@ import (
 	"modernc.org/cc/v4"
 )
 
+// Line represents a line of assembly code
+type Line struct {
+	Labels   []string
+	Assembly string
+	Binary   []string
+}
+
 var supportedTypes = map[string]int{
 	"int64_t": 8,
 	"long":    8,
@@ -41,6 +48,7 @@ type TranslateUnit struct {
 	Source     string
 	Assembly   string
 	Object     string
+	Arch       archConfig
 	GoAssembly string
 	Go         string
 	Package    string
@@ -194,7 +202,7 @@ func (t *TranslateUnit) compile(args ...string) error {
 		args = append(args, "-ffixed-x27")
 	}
 	clangPath := getClangPath()
-	_, err := runCommand(clangPath, append([]string{"-S", "-target", arch.BuildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
+	_, err = runCommand(clangPath, append([]string{"-S", "-target", arch.BuildTarget, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {
 		return err
 	}
@@ -207,6 +215,7 @@ func (t *TranslateUnit) Translate() error {
 	if err != nil {
 		return err
 	}
+	t.Arch = arch
 	functions, err := t.parseSource()
 	if err != nil {
 		return err
@@ -233,7 +242,7 @@ func (t *TranslateUnit) Translate() error {
 		functions[i].Lines = assembly[name.Name]
 		functions[i].StackSize = stackSizes[name.Name]
 	}
-	return t.generateGoAssembly(t.GoAssembly, functions)
+	return t.generateGoAssemblyForTarget(t.Arch.GoArch, t.GoAssembly, functions)
 }
 
 type ParameterType struct {

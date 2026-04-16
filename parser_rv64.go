@@ -1,3 +1,5 @@
+//go:build !noasm
+
 // Copyright 2022 gorse Project Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +21,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
@@ -29,25 +30,18 @@ const (
 )
 
 var (
-	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
-	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	riscv64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
+	riscv64NameLine      = regexp.MustCompile(`^\w+:.+$`)
+	riscv64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
+	riscv64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
-	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers   = []string{"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"}
-	fpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
+	riscv64Registers   = []string{"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"}
+	riscv64FpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
 )
 
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   string
-}
 
-func (line *Line) String() string {
+func formatLineRISCV64(line *Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
 	if strings.HasPrefix(line.Assembly, "b") {
@@ -73,7 +67,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssemblyRISCV64(path string) (map[string][]Line, map[string]int, error) {
+func parseAssemblyRv64(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -94,12 +88,12 @@ func parseAssemblyRISCV64(path string) (map[string][]Line, map[string]int, error
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		if riscv64AttributeLine.MatchString(line) {
 			continue
-		} else if nameLine.MatchString(line) {
+		} else if riscv64NameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
 			functions[functionName] = make([]Line, 0)
-		} else if labelLine.MatchString(line) {
+		} else if riscv64LabelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
 			lines := functions[functionName]
@@ -108,7 +102,7 @@ func parseAssemblyRISCV64(path string) (map[string][]Line, map[string]int, error
 			} else {
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
-		} else if codeLine.MatchString(line) {
+		} else if riscv64CodeLine.MatchString(line) {
 			asm := strings.Split(line, "//")[0]
 			asm = strings.TrimSpace(asm)
 			if labelName == "" {
@@ -129,47 +123,11 @@ func parseAssemblyRISCV64(path string) (map[string][]Line, map[string]int, error
 	return functions, stackSizes, nil
 }
 
-func parseObjectDump(dump string, functions map[string][]Line) error {
-	var (
-		functionName string
-		lineNumber   int
-	)
-	for i, line := range strings.Split(dump, "\n") {
-		line = strings.TrimSpace(line)
-		if symbolLine.MatchString(line) {
-			functionName = strings.Split(line, "<")[1]
-			functionName = strings.Split(functionName, ">")[0]
-			lineNumber = 0
-		} else if dataLine.MatchString(line) {
-			data := strings.Split(line, ":")[1]
-			data = strings.TrimSpace(data)
-			splits := strings.Split(data, " ")
-			var (
-				binary   string
-				assembly string
-			)
-			for i, s := range splits {
-				if s == "" || unicode.IsSpace(rune(s[0])) {
-					assembly = strings.Join(splits[i:], " ")
-					assembly = strings.TrimSpace(assembly)
-					break
-				}
-				binary = s
-			}
-			if lineNumber >= len(functions[functionName]) {
-				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
-			}
-			functions[functionName][lineNumber].Binary = binary
-			lineNumber++
-		}
-	}
-	return nil
-}
 
-func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) error {
+func (t *TranslateUnit) generateGoAssemblyRv64(path string, functions []Function) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(buildTags)
+	builder.WriteString(t.Arch.BuildTags)
 	t.writeHeader(&builder)
 	for _, function := range functions {
 		returnSize := 0
@@ -191,22 +149,22 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				offset += sz - offset%sz
 			}
 			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
-				if fpRegisterCount < len(fpRegisters) {
+				if fpRegisterCount < len(riscv64FpRegisters) {
 					if param.Type == "double" {
-						builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, riscv64FpRegisters[fpRegisterCount]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tMOVF %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tMOVF %s+%d(FP), %s\n", param.Name, offset, riscv64FpRegisters[fpRegisterCount]))
 					}
 					fpRegisterCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			} else {
-				if registerCount < len(registers) {
+				if registerCount < len(riscv64Registers) {
 					if param.Type == "_Bool" {
-						builder.WriteString(fmt.Sprintf("\tMOVB %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+						builder.WriteString(fmt.Sprintf("\tMOVB %s+%d(FP), %s\n", param.Name, offset, riscv64Registers[registerCount]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tMOV %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+						builder.WriteString(fmt.Sprintf("\tMOV %s+%d(FP), %s\n", param.Name, offset, riscv64Registers[registerCount]))
 					}
 					registerCount++
 				} else {
@@ -264,7 +222,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				builder.WriteString("\tRET\n")
 			} else {
-				builder.WriteString(line.String())
+				builder.WriteString(formatLineRISCV64(&line))
 			}
 		}
 	}

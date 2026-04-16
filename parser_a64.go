@@ -1,3 +1,5 @@
+//go:build !noasm
+
 // Copyright 2022 gorse Project Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,28 +31,21 @@ const (
 )
 
 var (
-	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
-	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
-	jmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
+	arm64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
+	arm64NameLine      = regexp.MustCompile(`^\w+:.+$`)
+	arm64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
+	arm64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	arm64JmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 
-	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
-	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
+	arm64Registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
+	arm64FpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 )
 
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   string
-}
 
-func (line *Line) String() string {
+func formatLineARM64(line *Line) string {
 	var builder strings.Builder
-	if jmpLine.MatchString(line.Assembly) {
+	if arm64JmpLine.MatchString(line.Assembly) {
 		splits := strings.Split(line.Assembly, "\t")
 		instruction := strings.Map(func(r rune) rune {
 			if r == '.' {
@@ -70,7 +65,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssemblyARM64(path string) (map[string][]Line, map[string]int, error) {
+func parseAssemblyA64(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -91,12 +86,12 @@ func parseAssemblyARM64(path string) (map[string][]Line, map[string]int, error) 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		if arm64AttributeLine.MatchString(line) {
 			continue
-		} else if nameLine.MatchString(line) {
+		} else if arm64NameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
 			functions[functionName] = make([]Line, 0)
-		} else if labelLine.MatchString(line) {
+		} else if arm64LabelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
 			lines := functions[functionName]
@@ -105,7 +100,7 @@ func parseAssemblyARM64(path string) (map[string][]Line, map[string]int, error) 
 			} else {
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
-		} else if codeLine.MatchString(line) {
+		} else if arm64CodeLine.MatchString(line) {
 			asm := strings.Split(line, "//")[0]
 			asm = strings.TrimSpace(asm)
 			if labelName == "" {
@@ -126,47 +121,11 @@ func parseAssemblyARM64(path string) (map[string][]Line, map[string]int, error) 
 	return functions, stackSizes, nil
 }
 
-func parseObjectDump(dump string, functions map[string][]Line) error {
-	var (
-		functionName string
-		lineNumber   int
-	)
-	for i, line := range strings.Split(dump, "\n") {
-		line = strings.TrimSpace(line)
-		if symbolLine.MatchString(line) {
-			functionName = strings.Split(line, "<")[1]
-			functionName = strings.Split(functionName, ">")[0]
-			lineNumber = 0
-		} else if dataLine.MatchString(line) {
-			data := strings.Split(line, ":")[1]
-			data = strings.TrimSpace(data)
-			splits := strings.Split(data, " ")
-			var (
-				binary   string
-				assembly string
-			)
-			for i, s := range splits {
-				if s == "" || unicode.IsSpace(rune(s[0])) {
-					assembly = strings.Join(splits[i:], " ")
-					assembly = strings.TrimSpace(assembly)
-					break
-				}
-				binary = s
-			}
-			if lineNumber >= len(functions[functionName]) {
-				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
-			}
-			functions[functionName][lineNumber].Binary = binary
-			lineNumber++
-		}
-	}
-	return nil
-}
 
-func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) error {
+func (t *TranslateUnit) generateGoAssemblyA64(path string, functions []Function) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(buildTags)
+	builder.WriteString(t.Arch.BuildTags)
 	t.writeHeader(&builder)
 	for _, function := range functions {
 		returnSize := 0
@@ -187,19 +146,19 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				offset += sz - offset%sz
 			}
 			if !param.Pointer && (param.Type == "float" || param.Type == "double") {
-				if fpRegisterCount < len(fpRegisters) {
+				if fpRegisterCount < len(arm64FpRegisters) {
 					if param.Type == "float" {
-						argsBuilder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						argsBuilder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, offset, arm64FpRegisters[fpRegisterCount]))
 					} else {
-						argsBuilder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						argsBuilder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, arm64FpRegisters[fpRegisterCount]))
 					}
 					fpRegisterCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			} else {
-				if registerCount < len(registers) {
-					argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+				if registerCount < len(arm64Registers) {
+					argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, arm64Registers[registerCount]))
 					registerCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
@@ -248,7 +207,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				builder.WriteString("\tRET\n")
 			} else {
-				builder.WriteString(line.String())
+				builder.WriteString(formatLineARM64(&line))
 			}
 		}
 	}

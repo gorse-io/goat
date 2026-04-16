@@ -1,3 +1,5 @@
+//go:build !noasm
+
 // Copyright 2022 gorse Project Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,16 +31,14 @@ const (
 )
 
 var (
-	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
-	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	loong64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
+	loong64NameLine      = regexp.MustCompile(`^\w+:.+$`)
+	loong64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
+	loong64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
-	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
-	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
+	loong64Registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
+	loong64FpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 
 	registersAlias = map[string]string{
 		"$zero": "R0",
@@ -80,30 +80,25 @@ var (
 	}
 )
 
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   string
-}
 
-func (line *Line) String() string {
+func formatLineLOONG64(line *Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
 	if strings.HasPrefix(line.Assembly, "b") && !strings.HasPrefix(line.Assembly, "bstrins") {
 		splits := strings.Split(line.Assembly, ".")
 		op := strings.TrimSpace(splits[0])
-		registers := strings.FieldsFunc(op, func(r rune) bool {
+		loong64Registers := strings.FieldsFunc(op, func(r rune) bool {
 			return unicode.IsSpace(r) || r == ','
 		})
-		if o, ok := opAlias[registers[0]]; !ok {
-			builder.WriteString(strings.ToUpper(registers[0]))
+		if o, ok := opAlias[loong64Registers[0]]; !ok {
+			builder.WriteString(strings.ToUpper(loong64Registers[0]))
 		} else {
 			builder.WriteString(o)
 		}
 		builder.WriteRune(' ')
-		for i := 1; i < len(registers); i++ {
-			if r, ok := registersAlias[registers[i]]; !ok {
-				_, _ = fmt.Fprintln(os.Stderr, "unexpected register alias:", registers[i])
+		for i := 1; i < len(loong64Registers); i++ {
+			if r, ok := registersAlias[loong64Registers[i]]; !ok {
+				_, _ = fmt.Fprintln(os.Stderr, "unexpected register alias:", loong64Registers[i])
 				os.Exit(1)
 			} else {
 				builder.WriteString(r)
@@ -121,7 +116,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssemblyLoong64(path string) (map[string][]Line, map[string]int, error) {
+func parseAssemblyLoong(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -142,12 +137,12 @@ func parseAssemblyLoong64(path string) (map[string][]Line, map[string]int, error
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		if loong64AttributeLine.MatchString(line) {
 			continue
-		} else if nameLine.MatchString(line) {
+		} else if loong64NameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
 			functions[functionName] = make([]Line, 0)
-		} else if labelLine.MatchString(line) {
+		} else if loong64LabelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
 			lines := functions[functionName]
@@ -156,7 +151,7 @@ func parseAssemblyLoong64(path string) (map[string][]Line, map[string]int, error
 			} else {
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
-		} else if codeLine.MatchString(line) {
+		} else if loong64CodeLine.MatchString(line) {
 			asm := strings.Split(line, "//")[0]
 			asm = strings.TrimSpace(asm)
 			if labelName == "" {
@@ -177,50 +172,11 @@ func parseAssemblyLoong64(path string) (map[string][]Line, map[string]int, error
 	return functions, stackSizes, nil
 }
 
-func parseObjectDump(dump string, functions map[string][]Line) error {
-	var (
-		functionName string
-		lineNumber   int
-	)
-	for i, line := range strings.Split(dump, "\n") {
-		line = strings.TrimSpace(line)
-		if symbolLine.MatchString(line) {
-			functionName = strings.Split(line, "<")[1]
-			functionName = strings.Split(functionName, ">")[0]
-			lineNumber = 0
-		} else if dataLine.MatchString(line) {
-			data := strings.Split(line, ":")[1]
-			data = strings.TrimSpace(data)
-			splits := strings.Split(data, " ")
-			var (
-				binary   string
-				assembly string
-			)
-			for i, s := range splits {
-				if s == "" || unicode.IsSpace(rune(s[0])) {
-					assembly = strings.Join(splits[i:], " ")
-					assembly = strings.TrimSpace(assembly)
-					break
-				}
-				binary = s
-			}
-			if assembly == "nop" {
-				continue
-			}
-			if lineNumber >= len(functions[functionName]) {
-				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
-			}
-			functions[functionName][lineNumber].Binary = binary
-			lineNumber++
-		}
-	}
-	return nil
-}
 
-func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) error {
+func (t *TranslateUnit) generateGoAssemblyLoong(path string, functions []Function) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(buildTags)
+	builder.WriteString(t.Arch.BuildTags)
 	t.writeHeader(&builder)
 	for _, function := range functions {
 		returnSize := 0
@@ -242,19 +198,19 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				offset += sz - offset%sz
 			}
 			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
-				if fpRegisterCount < len(fpRegisters) {
+				if fpRegisterCount < len(loong64FpRegisters) {
 					if param.Type == "double" {
-						builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, loong64FpRegisters[fpRegisterCount]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tMOVF %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						builder.WriteString(fmt.Sprintf("\tMOVF %s+%d(FP), %s\n", param.Name, offset, loong64FpRegisters[fpRegisterCount]))
 					}
 					fpRegisterCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			} else {
-				if registerCount < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOVV %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+				if registerCount < len(loong64Registers) {
+					builder.WriteString(fmt.Sprintf("\tMOVV %s+%d(FP), %s\n", param.Name, offset, loong64Registers[registerCount]))
 					registerCount++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
@@ -309,7 +265,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				builder.WriteString("\tRET\n")
 			} else {
-				builder.WriteString(line.String())
+				builder.WriteString(formatLineLOONG64(&line))
 			}
 		}
 	}

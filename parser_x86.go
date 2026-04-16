@@ -1,3 +1,5 @@
+//go:build !noasm
+
 // Copyright 2022 gorse Project Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +21,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
@@ -29,25 +30,18 @@ const (
 )
 
 var (
-	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
-	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	amd64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
+	amd64NameLine      = regexp.MustCompile(`^\w+:.+$`)
+	amd64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
+	amd64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
-	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
-	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
+	amd64Registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
+	amd64XmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
 )
 
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   []string
-}
 
-func (line *Line) String() string {
+func formatLineAMD64(line *Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
 	if strings.HasPrefix(line.Assembly, "j") {
@@ -85,7 +79,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssemblyAMD64(path string) (map[string][]Line, map[string]int, error) {
+func parseAssemblyX86(path string) (map[string][]Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -106,13 +100,13 @@ func parseAssemblyAMD64(path string) (map[string][]Line, map[string]int, error) 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		if amd64AttributeLine.MatchString(line) {
 			continue
-		} else if nameLine.MatchString(line) {
+		} else if amd64NameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
 			functions[functionName] = make([]Line, 0)
 			labelName = ""
-		} else if labelLine.MatchString(line) {
+		} else if amd64LabelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
 			lines := functions[functionName]
@@ -122,7 +116,7 @@ func parseAssemblyAMD64(path string) (map[string][]Line, map[string]int, error) 
 			} else {
 				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
 			}
-		} else if codeLine.MatchString(line) {
+		} else if amd64CodeLine.MatchString(line) {
 			asm := sanitizeAsm(line)
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
@@ -145,68 +139,12 @@ func parseAssemblyAMD64(path string) (map[string][]Line, map[string]int, error) 
 	return functions, stackSizes, nil
 }
 
-func sanitizeAsm(asm string) string {
-	asm = strings.TrimSpace(asm)
-	asm = strings.Split(asm, "//")[0]
-	asm = strings.TrimSpace(asm)
 
-	return asm
-}
 
-func parseObjectDump(dump string, functions map[string][]Line) error {
-	var (
-		functionName string
-		lineNumber   int
-	)
-	for i, line := range strings.Split(dump, "\n") {
-		line = strings.TrimSpace(line)
-		if symbolLine.MatchString(line) {
-			functionName = strings.Split(line, "<")[1]
-			functionName = strings.Split(functionName, ">")[0]
-			lineNumber = 0
-		} else if dataLine.MatchString(line) {
-			data := strings.Split(line, ":")[1]
-			data = strings.TrimSpace(data)
-			splits := strings.Split(data, " ")
-			var (
-				binary   []string
-				assembly string
-			)
-			for i, s := range splits {
-				if s == "" || unicode.IsSpace(rune(s[0])) {
-					assembly = strings.Join(splits[i:], " ")
-					assembly = strings.TrimSpace(assembly)
-					break
-				}
-				binary = append(binary, s)
-			}
-
-			assembly = sanitizeAsm(assembly)
-			if strings.Contains(assembly, "nop") {
-				continue
-			}
-
-			if assembly == "" {
-				return fmt.Errorf("try to increase --insn-width of objdump")
-			} else if strings.HasPrefix(assembly, "nop") ||
-				assembly == "xchg   %ax,%ax" ||
-				assembly == "cs nopw 0x0(%rax,%rax,1)" {
-				continue
-			}
-			if lineNumber >= len(functions[functionName]) {
-				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
-			}
-			functions[functionName][lineNumber].Binary = binary
-			lineNumber++
-		}
-	}
-	return nil
-}
-
-func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) error {
+func (t *TranslateUnit) generateGoAssemblyX86(path string, functions []Function) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(buildTags)
+	builder.WriteString(t.Arch.BuildTags)
 	t.writeHeader(&builder)
 	for _, function := range functions {
 		returnSize := 0
@@ -228,19 +166,19 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				offset += sz - offset%sz
 			}
 			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
-				if xmmRegisterIndex < len(xmmRegisters) {
+				if xmmRegisterIndex < len(amd64XmmRegisters) {
 					if param.Type == "double" {
-						builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
+						builder.WriteString(fmt.Sprintf("\tMOVSD %s+%d(FP), %s\n", param.Name, offset, amd64XmmRegisters[xmmRegisterIndex]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, offset, xmmRegisters[xmmRegisterIndex]))
+						builder.WriteString(fmt.Sprintf("\tMOVSS %s+%d(FP), %s\n", param.Name, offset, amd64XmmRegisters[xmmRegisterIndex]))
 					}
 					xmmRegisterIndex++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
 				}
 			} else {
-				if registerIndex < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, offset, registers[registerIndex]))
+				if registerIndex < len(amd64Registers) {
+					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, offset, amd64Registers[registerIndex]))
 					registerIndex++
 				} else {
 					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
@@ -282,7 +220,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				builder.WriteString("\tRET\n")
 			} else {
-				builder.WriteString(line.String())
+				builder.WriteString(formatLineAMD64(&line))
 			}
 		}
 	}
