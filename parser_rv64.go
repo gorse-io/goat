@@ -16,10 +16,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/gorse-io/goat/internal/types"
@@ -27,20 +25,10 @@ import (
 	"github.com/samber/lo"
 )
 
-const (
-)
-
 var (
-	riscv64AttributeLine = regexp.MustCompile(`^\s+\..+$`)
-	riscv64NameLine      = regexp.MustCompile(`^\w+:.+$`)
-	riscv64LabelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
-	riscv64CodeLine      = regexp.MustCompile(`^\s+\w+.+$`)
-
-
 	riscv64Registers   = []string{"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"}
 	riscv64FpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
 )
-
 
 func formatLineRISCV64(line *Line) string {
 	var builder strings.Builder
@@ -67,63 +55,6 @@ func formatLineRISCV64(line *Line) string {
 	builder.WriteString("\n")
 	return builder.String()
 }
-
-func parseAssemblyRv64(path string) (map[string][]Line, map[string]int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func(file *os.File) {
-		if err = file.Close(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}(file)
-
-	var (
-		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]Line)
-		functionName string
-		labelName    string
-	)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if riscv64AttributeLine.MatchString(line) {
-			continue
-		} else if riscv64NameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]Line, 0)
-		} else if riscv64LabelLine.MatchString(line) {
-			labelName = strings.Split(line, ":")[0]
-			labelName = labelName[1:]
-			lines := functions[functionName]
-			if len(lines) == 1 || lines[len(lines)-1].Assembly != "" {
-				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
-			} else {
-				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
-			}
-		} else if riscv64CodeLine.MatchString(line) {
-			asm := strings.Split(line, "//")[0]
-			asm = strings.TrimSpace(asm)
-			if labelName == "" {
-				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
-			} else {
-				lines := functions[functionName]
-				if len(lines) > 0 {
-					lines[len(lines)-1].Assembly = asm
-				}
-				labelName = ""
-			}
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		return nil, nil, err
-	}
-	return functions, stackSizes, nil
-}
-
 
 func (t *TranslateUnit) generateGoAssemblyRv64(path string, functions []Function) error {
 	// generate code
