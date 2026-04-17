@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package parser
+package internal
 
 import (
 	"sort"
@@ -24,9 +24,9 @@ type Target struct {
 	ClangTriple        string
 	Prologue           string
 	ClangOptions       []string
-	ParseAssembly      func(string) (any, map[string]int, error)
-	ParseObjectDump    func(string, any) error
-	GenerateGoAssembly func(string, string, string, []Function, any) error
+	ParseAssembly      func(string) (map[string][]Line, map[string]int, error)
+	ParseObjectDump    func(string, map[string][]Line) error
+	GenerateGoAssembly func(string, string, string, []Function) error
 }
 
 var (

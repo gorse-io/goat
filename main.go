@@ -19,10 +19,10 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/gorse-io/goat/internal"
 	_ "github.com/gorse-io/goat/internal/amd64"
 	_ "github.com/gorse-io/goat/internal/arm64"
 	_ "github.com/gorse-io/goat/internal/loong64"
-	"github.com/gorse-io/goat/internal/parser"
 	_ "github.com/gorse-io/goat/internal/riscv64"
 	"github.com/spf13/cobra"
 )
@@ -43,10 +43,10 @@ var command = &cobra.Command{
 		}
 
 		targetName, _ := cmd.PersistentFlags().GetString("target")
-		target, ok := parser.LookupTarget(targetName)
+		target, ok := internal.LookupTarget(targetName)
 		if !ok {
 			_, _ = fmt.Fprintf(os.Stderr, "unsupported target: %s (supported: %s)\n",
-				targetName, strings.Join(parser.TargetNames(), ", "))
+				targetName, strings.Join(internal.TargetNames(), ", "))
 			os.Exit(1)
 		}
 
@@ -60,8 +60,8 @@ var command = &cobra.Command{
 		optimizeLevel, _ := cmd.PersistentFlags().GetInt("optimize-level")
 		options = append(options, fmt.Sprintf("-O%d", optimizeLevel))
 
-		parser.SetVerbose(verbose)
-		file := parser.NewTranslateUnit(args[0], output, target, options...)
+		internal.SetVerbose(verbose)
+		file := internal.NewTranslateUnit(args[0], output, target, options...)
 		if err := file.Translate(); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

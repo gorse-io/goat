@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package parser
+package internal
 
 import (
 	"fmt"
@@ -50,11 +50,19 @@ type Parameter struct {
 	ParameterType
 }
 
+type Line struct {
+	Labels   []string
+	Assembly string
+	Binary   string
+}
+
 type Function struct {
 	Name       string
 	Position   int
 	Type       string
 	Parameters []Parameter
+	Lines      []Line
+	StackSize  int
 }
 
 // convertFunction extracts the function definition from cc.DirectDeclarator.

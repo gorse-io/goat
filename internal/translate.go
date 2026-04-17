@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package parser
+package internal
 
 import (
 	"errors"
@@ -182,7 +182,7 @@ func (t *TranslateUnit) Translate() error {
 	if err = t.compile(t.Options...); err != nil {
 		return err
 	}
-	assembly, _, err := t.Target.ParseAssembly(t.Assembly)
+	assembly, stackSizes, err := t.Target.ParseAssembly(t.Assembly)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,11 @@ func (t *TranslateUnit) Translate() error {
 	if err = t.Target.ParseObjectDump(dump, assembly); err != nil {
 		return err
 	}
-	return t.Target.GenerateGoAssembly(t.Target.BuildTags, t.Header(), t.GoAssembly, functions, assembly)
+	for i, function := range functions {
+		functions[i].Lines = assembly[function.Name]
+		functions[i].StackSize = stackSizes[function.Name]
+	}
+	return t.Target.GenerateGoAssembly(t.Target.BuildTags, t.Header(), t.GoAssembly, functions)
 }
 
 func (t *TranslateUnit) Header() string {

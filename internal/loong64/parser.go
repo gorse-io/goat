@@ -21,7 +21,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/gorse-io/goat/internal/parser"
+	"github.com/gorse-io/goat/internal"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
 )
@@ -78,32 +78,18 @@ var (
 	}
 )
 
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   string
-}
-
 func init() {
-	parser.RegisterTarget("loong64", parser.Target{
+	internal.RegisterTarget("loong64", internal.Target{
 		GOARCH:             "loong64",
 		BuildTags:          "//go:build !noasm && loong64\n",
 		ClangTriple:        "loongarch64-linux-gnu",
-		ParseAssembly:      parseAssemblyTarget,
-		ParseObjectDump:    parseObjectDumpTarget,
+		ParseAssembly:      parseAssembly,
+		ParseObjectDump:    parseObjectDump,
 		GenerateGoAssembly: generateGoAssembly,
 	})
 }
 
-func parseAssemblyTarget(path string) (any, map[string]int, error) {
-	return parseAssembly(path)
-}
-
-func parseObjectDumpTarget(dump string, assembly any) error {
-	return parseObjectDump(dump, assembly.(map[string][]Line))
-}
-
-func (line *Line) String() string {
+func generateLine(line internal.Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
 	if strings.HasPrefix(line.Assembly, "b") && !strings.HasPrefix(line.Assembly, "bstrins") {
@@ -138,7 +124,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
+func parseAssembly(path string) (map[string][]internal.Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -152,7 +138,7 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 
 	var (
 		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]Line)
+		functions    = make(map[string][]internal.Line)
 		functionName string
 		labelName    string
 	)
@@ -163,13 +149,13 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 			continue
 		} else if nameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]Line, 0)
+			functions[functionName] = make([]internal.Line, 0)
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
 			lines := functions[functionName]
 			if len(lines) == 1 || lines[len(lines)-1].Assembly != "" {
-				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
+				functions[functionName] = append(functions[functionName], internal.Line{Labels: []string{labelName}})
 			} else {
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
@@ -177,7 +163,7 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 			asm := strings.Split(line, "//")[0]
 			asm = strings.TrimSpace(asm)
 			if labelName == "" {
-				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
+				functions[functionName] = append(functions[functionName], internal.Line{Assembly: asm})
 			} else {
 				lines := functions[functionName]
 				if len(lines) > 0 {
@@ -194,7 +180,7 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 	return functions, stackSizes, nil
 }
 
-func parseObjectDump(dump string, functions map[string][]Line) error {
+func parseObjectDump(dump string, functions map[string][]internal.Line) error {
 	var (
 		functionName string
 		lineNumber   int
@@ -234,13 +220,12 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 	return nil
 }
 
-func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []parser.Function, assembly any) error {
+func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []internal.Function) error {
 	// generate code
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
 	for _, function := range functions {
-		lines := assembly.(map[string][]Line)[function.Name]
 		returnSize := 0
 		if function.Type != "void" {
 			returnSize += 8
@@ -248,13 +233,13 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, len(function.Parameters)*8))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, parser.Parameter]
+		var stack []lo.Tuple2[int, internal.Parameter]
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = parser.SupportedTypes[param.Type]
+				sz = internal.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz
@@ -268,14 +253,14 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					fpRegisterCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, parser.Parameter]{A: offset, B: param})
+					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
 				}
 			} else {
 				if registerCount < len(registers) {
 					builder.WriteString(fmt.Sprintf("\tMOVV %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
 					registerCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, parser.Parameter]{A: offset, B: param})
+					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
 				}
 			}
 			offset += sz
@@ -289,7 +274,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				if stack[i].B.Pointer {
 					frameSize += 8
 				} else {
-					frameSize += parser.SupportedTypes[stack[i].B.Type]
+					frameSize += internal.SupportedTypes[stack[i].B.Type]
 				}
 			}
 			builder.WriteString(fmt.Sprintf("\tADDV $-%d, R3\n", frameSize))
@@ -300,11 +285,11 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				if stack[i].B.Pointer {
 					stackoffset += 8
 				} else {
-					stackoffset += parser.SupportedTypes[stack[i].B.Type]
+					stackoffset += internal.SupportedTypes[stack[i].B.Type]
 				}
 			}
 		}
-		for _, line := range lines {
+		for _, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
 				builder.WriteString(":\n")
@@ -327,7 +312,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				}
 				builder.WriteString("\tRET\n")
 			} else {
-				builder.WriteString(line.String())
+				builder.WriteString(generateLine(line))
 			}
 		}
 	}
