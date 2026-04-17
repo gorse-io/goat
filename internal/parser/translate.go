@@ -69,12 +69,6 @@ func (t *TranslateUnit) ParseSource() ([]Function, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(f *os.File) {
-		if err = f.Close(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}(f)
 	cfg, err := cc.NewConfig(runtime.GOOS, t.Target.GOARCH())
 	if err != nil {
 		return nil, err
