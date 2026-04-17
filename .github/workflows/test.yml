@@ -87,9 +87,9 @@ jobs:
         uses: ConorMacBride/install-package@v1
         with:
           apt: qemu-user-static clang lld binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
-      - name: Cross-compile GOAT for RISC-V
+      - name: Cross-compile GOAT for riscv64
         run: GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go build -o goat .
-      - name: Generate RISC-V assembly with GOAT
+      - name: Generate riscv64 assembly with GOAT
         env:
           CC: riscv64-linux-gnu-gcc
           CXX: riscv64-linux-gnu-g++
@@ -115,9 +115,9 @@ jobs:
         uses: ConorMacBride/install-package@v1
         with:
           apt: qemu-user-static clang lld binutils-loongarch64-linux-gnu gcc-14-loongarch64-linux-gnu g++-14-loongarch64-linux-gnu
-      - name: Cross-compile GOAT for LoongArch
+      - name: Cross-compile GOAT for loong64
         run: GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go build -o goat .
-      - name: Generate LoongArch assembly with GOAT
+      - name: Generate loong64 assembly with GOAT
         env:
           CC: loongarch64-linux-gnu-gcc-14
           CXX: loongarch64-linux-gnu-g++-14

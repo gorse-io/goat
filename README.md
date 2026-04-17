@@ -9,14 +9,14 @@ Go assembly transpiler for C programming languages. It help to utilize optimizat
 
 The following packages are required:
 
-- Ubuntu for AMD64:
+- Ubuntu for amd64:
 
 ```bash
 sudo apt update
 sudo apt install clang libc6-dev-i386
 ```
 
-- Ubuntu for ARM64:
+- Ubuntu for arm64:
 
 ```bash
 sudo apt update
