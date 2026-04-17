@@ -39,8 +39,6 @@ var (
 	fpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
 )
 
-type Target struct{}
-
 type Line struct {
 	Labels   []string
 	Assembly string
@@ -48,27 +46,6 @@ type Line struct {
 }
 
 func init() {
-	parser.RegisterTarget("riscv64", Target{})
-}
-
-func (Target) GOARCH() string {
-	return "riscv64"
-}
-
-func (Target) BuildTags() string {
-	return "//go:build !noasm && riscv64\n"
-}
-
-func (Target) ClangTriple() string {
-	return "riscv64-linux-gnu"
-}
-
-func (Target) ClangOptions(args []string) []string {
-	// X27 points to the Go routine structure.
-	return append(args, "-ffixed-x27")
-}
-
-func (Target) Prologue() string {
 	var prologue strings.Builder
 	prologue.WriteString("#define __riscv_vector 1\n")
 	for _, typeStr := range []string{"int64", "uint64", "int32", "uint32", "int16", "uint16", "int8", "uint8", "float64", "float32", "float16"} {
@@ -76,14 +53,25 @@ func (Target) Prologue() string {
 			prologue.WriteString(fmt.Sprintf("typedef char v%sm%d_t;\n", typeStr, i))
 		}
 	}
-	return prologue.String()
+
+	parser.RegisterTarget("riscv64", parser.Target{
+		GOARCH:      "riscv64",
+		BuildTags:   "//go:build !noasm && riscv64\n",
+		ClangTriple: "riscv64-linux-gnu",
+		Prologue:    prologue.String(),
+		// X27 points to the Go routine structure.
+		ClangOptions:       []string{"-ffixed-x27"},
+		ParseAssembly:      parseAssemblyTarget,
+		ParseObjectDump:    parseObjectDumpTarget,
+		GenerateGoAssembly: generateGoAssembly,
+	})
 }
 
-func (Target) ParseAssembly(path string) (any, map[string]int, error) {
+func parseAssemblyTarget(path string) (any, map[string]int, error) {
 	return parseAssembly(path)
 }
 
-func (Target) ParseObjectDump(dump string, assembly any) error {
+func parseObjectDumpTarget(dump string, assembly any) error {
 	return parseObjectDump(dump, assembly.(map[string][]Line))
 }
 
@@ -206,11 +194,11 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 	return nil
 }
 
-func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Function, assembly any) error {
+func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []parser.Function, assembly any) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(t.Target.BuildTags())
-	t.WriteHeader(&builder)
+	builder.WriteString(buildTags)
+	builder.WriteString(header)
 	for _, function := range functions {
 		lines := assembly.(map[string][]Line)[function.Name]
 		returnSize := 0
@@ -311,7 +299,7 @@ func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Fun
 	}
 
 	// write file
-	f, err := os.Create(t.GoAssembly)
+	f, err := os.Create(goAssemblyPath)
 	if err != nil {
 		return err
 	}

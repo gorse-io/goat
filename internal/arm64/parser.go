@@ -40,8 +40,6 @@ var (
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 )
 
-type Target struct{}
-
 type Line struct {
 	Labels   []string
 	Assembly string
@@ -49,36 +47,24 @@ type Line struct {
 }
 
 func init() {
-	parser.RegisterTarget("arm64", Target{})
+	parser.RegisterTarget("arm64", parser.Target{
+		GOARCH:      "arm64",
+		BuildTags:   "//go:build !noasm && arm64\n",
+		ClangTriple: "arm64-linux-gnu",
+		// R18 is the "platform register", reserved on the Apple platform.
+		// See https://go.dev/doc/asm#arm64
+		ClangOptions:       []string{"-ffixed-x18"},
+		ParseAssembly:      parseAssemblyTarget,
+		ParseObjectDump:    parseObjectDumpTarget,
+		GenerateGoAssembly: generateGoAssembly,
+	})
 }
 
-func (Target) GOARCH() string {
-	return "arm64"
-}
-
-func (Target) BuildTags() string {
-	return "//go:build !noasm && arm64\n"
-}
-
-func (Target) ClangTriple() string {
-	return "arm64-linux-gnu"
-}
-
-func (Target) ClangOptions(args []string) []string {
-	// R18 is the "platform register", reserved on the Apple platform.
-	// See https://go.dev/doc/asm#arm64
-	return append(args, "-ffixed-x18")
-}
-
-func (Target) Prologue() string {
-	return ""
-}
-
-func (Target) ParseAssembly(path string) (any, map[string]int, error) {
+func parseAssemblyTarget(path string) (any, map[string]int, error) {
 	return parseAssembly(path)
 }
 
-func (Target) ParseObjectDump(dump string, assembly any) error {
+func parseObjectDumpTarget(dump string, assembly any) error {
 	return parseObjectDump(dump, assembly.(map[string][]Line))
 }
 
@@ -197,11 +183,11 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 	return nil
 }
 
-func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Function, assembly any) error {
+func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []parser.Function, assembly any) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(t.Target.BuildTags())
-	t.WriteHeader(&builder)
+	builder.WriteString(buildTags)
+	builder.WriteString(header)
 	for _, function := range functions {
 		lines := assembly.(map[string][]Line)[function.Name]
 		returnSize := 0
@@ -289,7 +275,7 @@ func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Fun
 	}
 
 	// write file
-	f, err := os.Create(t.GoAssembly)
+	f, err := os.Create(goAssemblyPath)
 	if err != nil {
 		return err
 	}

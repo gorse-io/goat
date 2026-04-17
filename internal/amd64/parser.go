@@ -39,8 +39,6 @@ var (
 	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
 )
 
-type Target struct{}
-
 type Line struct {
 	Labels   []string
 	Assembly string
@@ -48,34 +46,22 @@ type Line struct {
 }
 
 func init() {
-	parser.RegisterTarget("amd64", Target{})
+	parser.RegisterTarget("amd64", parser.Target{
+		GOARCH:             "amd64",
+		BuildTags:          "//go:build !noasm && amd64\n",
+		ClangTriple:        "amd64-linux-gnu",
+		ClangOptions:       []string{"-mno-red-zone", "-mstackrealign"},
+		ParseAssembly:      parseAssemblyTarget,
+		ParseObjectDump:    parseObjectDumpTarget,
+		GenerateGoAssembly: generateGoAssembly,
+	})
 }
 
-func (Target) GOARCH() string {
-	return "amd64"
-}
-
-func (Target) BuildTags() string {
-	return "//go:build !noasm && amd64\n"
-}
-
-func (Target) ClangTriple() string {
-	return "amd64-linux-gnu"
-}
-
-func (Target) ClangOptions(args []string) []string {
-	return append(args, "-mno-red-zone", "-mstackrealign")
-}
-
-func (Target) Prologue() string {
-	return ""
-}
-
-func (Target) ParseAssembly(path string) (any, map[string]int, error) {
+func parseAssemblyTarget(path string) (any, map[string]int, error) {
 	return parseAssembly(path)
 }
 
-func (Target) ParseObjectDump(dump string, assembly any) error {
+func parseObjectDumpTarget(dump string, assembly any) error {
 	return parseObjectDump(dump, assembly.(map[string][]Line))
 }
 
@@ -232,11 +218,11 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 	return nil
 }
 
-func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Function, assembly any) error {
+func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []parser.Function, assembly any) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(t.Target.BuildTags())
-	t.WriteHeader(&builder)
+	builder.WriteString(buildTags)
+	builder.WriteString(header)
 	for _, function := range functions {
 		lines := assembly.(map[string][]Line)[function.Name]
 		returnSize := 0
@@ -318,7 +304,7 @@ func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Fun
 	}
 
 	// write file
-	f, err := os.Create(t.GoAssembly)
+	f, err := os.Create(goAssemblyPath)
 	if err != nil {
 		return err
 	}

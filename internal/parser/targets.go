@@ -18,15 +18,15 @@ import (
 	"sync"
 )
 
-type Target interface {
-	GOARCH() string
-	BuildTags() string
-	ClangTriple() string
-	ClangOptions([]string) []string
-	Prologue() string
-	ParseAssembly(string) (any, map[string]int, error)
-	ParseObjectDump(string, any) error
-	GenerateGoAssembly(*TranslateUnit, []Function, any) error
+type Target struct {
+	GOARCH             string
+	BuildTags          string
+	ClangTriple        string
+	Prologue           string
+	ClangOptions       []string
+	ParseAssembly      func(string) (any, map[string]int, error)
+	ParseObjectDump    func(string, any) error
+	GenerateGoAssembly func(string, string, string, []Function, any) error
 }
 
 var (
