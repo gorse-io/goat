@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package main
+package arm64
 
 import (
 	"bufio"
@@ -21,13 +21,9 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/gorse-io/goat/internal/parser"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
-)
-
-const (
-	buildTags   = "//go:build !noasm && loong64\n"
-	buildTarget = "loongarch64-linux-gnu"
 )
 
 var (
@@ -35,52 +31,16 @@ var (
 	nameLine      = regexp.MustCompile(`^\w+:.+$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
+	jmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 
-	registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
+	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
-
-	registersAlias = map[string]string{
-		"$zero": "R0",
-		"$ra":   "R1",
-		"$tp":   "R2",
-		"$sp":   "R3",
-		"$a0":   "R4",
-		"$a1":   "R5",
-		"$a2":   "R6",
-		"$a3":   "R7",
-		"$a4":   "R8",
-		"$a5":   "R9",
-		"$a6":   "R10",
-		"$a7":   "R11",
-		"$t0":   "R12",
-		"$t1":   "R13",
-		"$t2":   "R14",
-		"$t3":   "R15",
-		"$t4":   "R16",
-		"$t5":   "R17",
-		"$t6":   "R18",
-		"$t7":   "R19",
-		"$t8":   "R20",
-		"$fp":   "R22",
-		"$s0":   "R23",
-		"$s1":   "R24",
-		"$s2":   "R25",
-		"$s3":   "R26",
-		"$s4":   "R27",
-		"$s5":   "R28",
-		"$s6":   "R29",
-		"$s7":   "R30",
-		"$s8":   "R31",
-		"$s9":   "R22",
-	}
-	opAlias = map[string]string{
-		"b":    "JMP",
-		"bnez": "BNE",
-	}
 )
+
+type Target struct{}
 
 type Line struct {
 	Labels   []string
@@ -88,38 +48,59 @@ type Line struct {
 	Binary   string
 }
 
+func init() {
+	parser.RegisterTarget("arm64", Target{})
+}
+
+func (Target) GOARCH() string {
+	return "arm64"
+}
+
+func (Target) BuildTags() string {
+	return "//go:build !noasm && arm64\n"
+}
+
+func (Target) ClangTriple() string {
+	return "arm64-linux-gnu"
+}
+
+func (Target) ClangOptions(args []string) []string {
+	// R18 is the "platform register", reserved on the Apple platform.
+	// See https://go.dev/doc/asm#arm64
+	return append(args, "-ffixed-x18")
+}
+
+func (Target) Prologue() string {
+	return ""
+}
+
+func (Target) ParseAssembly(path string) (any, map[string]int, error) {
+	return parseAssembly(path)
+}
+
+func (Target) ParseObjectDump(dump string, assembly any) error {
+	return parseObjectDump(dump, assembly.(map[string][]Line))
+}
+
 func (line *Line) String() string {
 	var builder strings.Builder
-	builder.WriteString("\t")
-	if strings.HasPrefix(line.Assembly, "b") && !strings.HasPrefix(line.Assembly, "bstrins") {
-		splits := strings.Split(line.Assembly, ".")
-		op := strings.TrimSpace(splits[0])
-		registers := strings.FieldsFunc(op, func(r rune) bool {
-			return unicode.IsSpace(r) || r == ','
-		})
-		if o, ok := opAlias[registers[0]]; !ok {
-			builder.WriteString(strings.ToUpper(registers[0]))
-		} else {
-			builder.WriteString(o)
-		}
-		builder.WriteRune(' ')
-		for i := 1; i < len(registers); i++ {
-			if r, ok := registersAlias[registers[i]]; !ok {
-				_, _ = fmt.Fprintln(os.Stderr, "unexpected register alias:", registers[i])
-				os.Exit(1)
-			} else {
-				builder.WriteString(r)
-				builder.WriteRune(',')
+	if jmpLine.MatchString(line.Assembly) {
+		splits := strings.Split(line.Assembly, "\t")
+		instruction := strings.Map(func(r rune) rune {
+			if r == '.' {
+				return -1
 			}
-		}
-		builder.WriteString(splits[1])
+			return unicode.ToUpper(r)
+		}, splits[0])
+		label := splits[1][1:]
+		builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
 	} else {
 		builder.WriteString("\t")
 		builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
 		builder.WriteString("\t// ")
 		builder.WriteString(line.Assembly)
+		builder.WriteString("\n")
 	}
-	builder.WriteString("\n")
 	return builder.String()
 }
 
@@ -206,9 +187,6 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 				}
 				binary = s
 			}
-			if assembly == "nop" {
-				continue
-			}
 			if lineNumber >= len(functions[functionName]) {
 				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
 			}
@@ -219,47 +197,47 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 	return nil
 }
 
-func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) error {
+func (Target) GenerateGoAssembly(t *parser.TranslateUnit, functions []parser.Function, assembly any) error {
 	// generate code
 	var builder strings.Builder
-	builder.WriteString(buildTags)
-	t.writeHeader(&builder)
+	builder.WriteString(t.Target.BuildTags())
+	t.WriteHeader(&builder)
 	for _, function := range functions {
+		lines := assembly.(map[string][]Line)[function.Name]
 		returnSize := 0
 		if function.Type != "void" {
 			returnSize += 8
 		}
-		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, len(function.Parameters)*8))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, Parameter]
+		var stack []lo.Tuple2[int, parser.Parameter]
+		var argsBuilder strings.Builder
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = supportedTypes[param.Type]
+				sz = parser.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz
 			}
-			if !param.Pointer && (param.Type == "double" || param.Type == "float") {
+			if !param.Pointer && (param.Type == "float" || param.Type == "double") {
 				if fpRegisterCount < len(fpRegisters) {
-					if param.Type == "double" {
-						builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+					if param.Type == "float" {
+						argsBuilder.WriteString(fmt.Sprintf("\tFMOVS %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					} else {
-						builder.WriteString(fmt.Sprintf("\tMOVF %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
+						argsBuilder.WriteString(fmt.Sprintf("\tFMOVD %s+%d(FP), %s\n", param.Name, offset, fpRegisters[fpRegisterCount]))
 					}
 					fpRegisterCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
+					stack = append(stack, lo.Tuple2[int, parser.Parameter]{A: offset, B: param})
 				}
 			} else {
 				if registerCount < len(registers) {
-					builder.WriteString(fmt.Sprintf("\tMOVV %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
+					argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", param.Name, offset, registers[registerCount]))
 					registerCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
+					stack = append(stack, lo.Tuple2[int, parser.Parameter]{A: offset, B: param})
 				}
 			}
 			offset += sz
@@ -267,44 +245,38 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
-		frameSize := 0
+		stackOffset := 0
 		if len(stack) > 0 {
 			for i := 0; i < len(stack); i++ {
+				argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R8\n", stack[i].B.Name, stack[i].A))
+				argsBuilder.WriteString(fmt.Sprintf("\tMOVD R8, %d(RSP)\n", stackOffset))
 				if stack[i].B.Pointer {
-					frameSize += 8
+					stackOffset += 8
 				} else {
-					frameSize += supportedTypes[stack[i].B.Type]
-				}
-			}
-			builder.WriteString(fmt.Sprintf("\tADDV $-%d, R3\n", frameSize))
-			stackoffset := 0
-			for i := 0; i < len(stack); i++ {
-				builder.WriteString(fmt.Sprintf("\tMOVV %s+%d(FP), R12\n", stack[i].B.Name, frameSize+stack[i].A))
-				builder.WriteString(fmt.Sprintf("\tMOVV R12, (%d)(R3)\n", stackoffset))
-				if stack[i].B.Pointer {
-					stackoffset += 8
-				} else {
-					stackoffset += supportedTypes[stack[i].B.Type]
+					stackOffset += parser.SupportedTypes[stack[i].B.Type]
 				}
 			}
 		}
-		for _, line := range function.Lines {
+		if stackOffset%8 != 0 {
+			stackOffset += 8 - stackOffset%8
+		}
+		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
+			function.Name, stackOffset, offset+returnSize))
+		builder.WriteString(argsBuilder.String())
+		for _, line := range lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
 				builder.WriteString(":\n")
 			}
 			if line.Assembly == "ret" {
-				if frameSize > 0 {
-					builder.WriteString(fmt.Sprintf("\tADDV $%d, R3\n", frameSize))
-				}
 				if function.Type != "void" {
 					switch function.Type {
 					case "int64_t", "long", "_Bool":
-						builder.WriteString(fmt.Sprintf("\tMOVV R4, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tMOVD R0, result+%d(FP)\n", offset))
 					case "double":
-						builder.WriteString(fmt.Sprintf("\tMOVD F0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tFMOVD F0, result+%d(FP)\n", offset))
 					case "float":
-						builder.WriteString(fmt.Sprintf("\tMOVF F0, result+%d(FP)\n", offset))
+						builder.WriteString(fmt.Sprintf("\tFMOVS F0, result+%d(FP)\n", offset))
 					default:
 						return fmt.Errorf("unsupported return type: %v", function.Type)
 					}
@@ -317,7 +289,7 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 	}
 
 	// write file
-	f, err := os.Create(path)
+	f, err := os.Create(t.GoAssembly)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,288 @@
+// Copyright 2022 gorse Project Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+package parser
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+
+	"modernc.org/cc/v4"
+)
+
+var SupportedTypes = map[string]int{
+	"int64_t": 8,
+	"long":    8,
+	"float":   4,
+	"double":  8,
+	"_Bool":   1,
+}
+
+type TranslateUnit struct {
+	Source     string
+	Assembly   string
+	Object     string
+	GoAssembly string
+	Go         string
+	Package    string
+	Options    []string
+	Offset     int
+	Target     Target
+}
+
+func NewTranslateUnit(source string, outputDir string, target Target, options ...string) TranslateUnit {
+	sourceExt := filepath.Ext(source)
+	noExtSourcePath := source[:len(source)-len(sourceExt)]
+	noExtSourceBase := filepath.Base(noExtSourcePath)
+	return TranslateUnit{
+		Source:     source,
+		Assembly:   noExtSourcePath + ".s",
+		Object:     noExtSourcePath + ".o",
+		GoAssembly: filepath.Join(outputDir, noExtSourceBase+".s"),
+		Go:         filepath.Join(outputDir, noExtSourceBase+".go"),
+		Package:    filepath.Base(outputDir),
+		Options:    options,
+		Target:     target,
+	}
+}
+
+// ParseSource parse C source file and extract functions declarations.
+func (t *TranslateUnit) ParseSource() ([]Function, error) {
+	f, err := os.Open(t.Source)
+	if err != nil {
+		return nil, err
+	}
+	defer func(f *os.File) {
+		if err = f.Close(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}(f)
+	cfg, err := cc.NewConfig(runtime.GOOS, t.Target.GOARCH())
+	if err != nil {
+		return nil, err
+	}
+	ast, err := cc.Parse(cfg, []cc.Source{
+		{Name: "<predefined>", Value: cfg.Predefined},
+		{Name: "<builtin>", Value: cc.Builtin},
+		{Name: "<prologue>", Value: t.Target.Prologue()},
+		{Name: t.Source, Value: f},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse source file %v: %w", t.Source, err)
+	}
+	var functions []Function
+	for tu := ast.TranslationUnit; tu != nil; tu = tu.TranslationUnit {
+		externalDeclaration := tu.ExternalDeclaration
+		if externalDeclaration.Position().Filename == t.Source && externalDeclaration.Case == cc.ExternalDeclarationFuncDef {
+			functionSpecifier := externalDeclaration.FunctionDefinition.DeclarationSpecifiers.FunctionSpecifier
+			if functionSpecifier != nil && functionSpecifier.Case == cc.FunctionSpecifierInline {
+				continue
+			}
+			function, err := t.convertFunction(externalDeclaration.FunctionDefinition)
+			if err != nil {
+				return nil, err
+			}
+			functions = append(functions, function)
+		}
+	}
+	sort.Slice(functions, func(i, j int) bool {
+		return functions[i].Position < functions[j].Position
+	})
+	return functions, nil
+}
+
+func (t *TranslateUnit) GenerateGoStubs(functions []Function) error {
+	var builder strings.Builder
+	builder.WriteString(t.Target.BuildTags())
+	t.WriteHeader(&builder)
+	builder.WriteString(fmt.Sprintf("package %v\n", t.Package))
+	if HasPointer(functions) {
+		builder.WriteString("\nimport \"unsafe\"\n")
+	}
+	for _, function := range functions {
+		builder.WriteString("\n//go:noescape\n")
+		builder.WriteString("func ")
+		builder.WriteString(function.Name)
+		builder.WriteRune('(')
+		for i, param := range function.Parameters {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString(param.Name)
+			if i+1 == len(function.Parameters) || function.Parameters[i+1].String() != param.String() {
+				builder.WriteRune(' ')
+				builder.WriteString(param.String())
+			}
+		}
+		builder.WriteRune(')')
+		if function.Type != "void" {
+			switch function.Type {
+			case "_Bool":
+				builder.WriteString(" (result bool)")
+			case "double":
+				builder.WriteString(" (result float64)")
+			case "float":
+				builder.WriteString(" (result float32)")
+			case "int64_t", "long":
+				builder.WriteString(" (result int64)")
+			default:
+				return fmt.Errorf("unsupported return type: %v", function.Type)
+			}
+		}
+		builder.WriteRune('\n')
+	}
+
+	f, err := os.Create(t.Go)
+	if err != nil {
+		return err
+	}
+	defer func(f *os.File) {
+		if err = f.Close(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}(f)
+	_, err = f.WriteString(builder.String())
+	return err
+}
+
+func (t *TranslateUnit) compile(args ...string) error {
+	args = append(args, "-mllvm", "-inline-threshold=1000",
+		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
+	args = t.Target.ClangOptions(args)
+	clangPath := GetClangPath()
+	_, err := RunCommand(clangPath, append([]string{"-S", "-target", t.Target.ClangTriple(), "-c", t.Source, "-o", t.Assembly}, args...)...)
+	if err != nil {
+		return err
+	}
+	_, err = RunCommand(clangPath, append([]string{"-target", t.Target.ClangTriple(), "-c", t.Assembly, "-o", t.Object}, args...)...)
+	return err
+}
+
+func (t *TranslateUnit) Translate() error {
+	functions, err := t.ParseSource()
+	if err != nil {
+		return err
+	}
+	if err = t.GenerateGoStubs(functions); err != nil {
+		return err
+	}
+	if err = t.compile(t.Options...); err != nil {
+		return err
+	}
+	assembly, _, err := t.Target.ParseAssembly(t.Assembly)
+	if err != nil {
+		return err
+	}
+	dump, err := RunCommand(GetObjdumpPath(), "-d", t.Object, "--insn-width", "16")
+	if err != nil {
+		return err
+	}
+	if err = t.Target.ParseObjectDump(dump, assembly); err != nil {
+		return err
+	}
+	return t.Target.GenerateGoAssembly(t, functions, assembly)
+}
+
+func (t *TranslateUnit) WriteHeader(builder *strings.Builder) {
+	builder.WriteString("// Code generated by GoAT. DO NOT EDIT.\n")
+	builder.WriteString("// versions:\n")
+	builder.WriteString(fmt.Sprintf("// \tclang   %s\n", FetchVersion(GetClangPath())))
+	builder.WriteString(fmt.Sprintf("// \tobjdump %s\n", FetchVersion(GetObjdumpPath())))
+	builder.WriteString("// flags:")
+	for _, option := range t.Options {
+		builder.WriteString(" ")
+		builder.WriteString(option)
+	}
+	builder.WriteRune('\n')
+	builder.WriteString(fmt.Sprintf("// source: %v\n", t.Source))
+	builder.WriteRune('\n')
+}
+
+// RunCommand runs a command and extract its output.
+func RunCommand(name string, arg ...string) (string, error) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Running %v\n", append([]string{name}, arg...))
+	}
+	cmd := exec.Command(name, arg...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if output != nil {
+			return "", errors.New(string(output))
+		}
+		return "", err
+	}
+	return string(output), nil
+}
+
+func FetchVersion(command string) string {
+	version, err := RunCommand(command, "--version")
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	version = strings.Split(version, "\n")[0]
+	loc := regexp.MustCompile(`\d`).FindStringIndex(version)
+	if loc == nil {
+		_, _ = fmt.Fprintln(os.Stderr, "failed to fetch version")
+		os.Exit(1)
+	}
+	return version[loc[0]:]
+}
+
+func HasPointer(functions []Function) bool {
+	for _, function := range functions {
+		for _, param := range function.Parameters {
+			if param.Pointer {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var verbose bool
+
+func SetVerbose(v bool) {
+	verbose = v
+}
+
+// GetClangPath returns the path to the clang executable.
+// If the CLANG environment variable is set, it uses that path;
+// otherwise, it defaults to "clang".
+func GetClangPath() string {
+	path := os.Getenv("CLANG")
+	if path != "" {
+		return path
+	}
+	return "clang"
+}
+
+// GetObjdumpPath returns the path to the objdump executable.
+// If the OBJDUMP environment variable is set, it uses that path;
+// otherwise, it defaults to "objdump".
+func GetObjdumpPath() string {
+	path := os.Getenv("OBJDUMP")
+	if path != "" {
+		return path
+	}
+	return "objdump"
+}
