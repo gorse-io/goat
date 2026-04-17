@@ -41,7 +41,6 @@ Install LLVM and MinGW from the official website or use [Chocolatey](https://cho
 choco install llvm mingw
 ```
 
-Cross compile is not supported, so you need to run GoAT on the same architecture as the target architecture.
 
 ## Install
 
@@ -68,6 +67,7 @@ Flags:
   -m, --machine-option strings   machine option for clang
   -O, --optimize-level int       optimization level for clang
   -o, --output string            output directory of generated files
+  -t, --target string            target architecture, using Go GOARCH names (default current GOARCH)
   -v, --verbose                  if set, increase verbosity level
 ```
 

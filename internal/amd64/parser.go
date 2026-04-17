@@ -11,23 +11,20 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package main
+package amd64
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"unicode"
 
+	"github.com/gorse-io/goat/internal"
 	"github.com/klauspost/asmfmt"
 	"github.com/samber/lo"
-)
-
-const (
-	buildTags   = "//go:build !noasm && amd64\n"
-	buildTarget = "amd64-linux-gnu"
 )
 
 var (
@@ -43,13 +40,19 @@ var (
 	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
 )
 
-type Line struct {
-	Labels   []string
-	Assembly string
-	Binary   []string
+func init() {
+	internal.RegisterTarget("amd64", internal.Target{
+		GOARCH:             "amd64",
+		BuildTags:          "//go:build !noasm && amd64\n",
+		ClangTriple:        "amd64-linux-gnu",
+		ClangOptions:       []string{"-mno-red-zone", "-mstackrealign"},
+		ParseAssembly:      parseAssembly,
+		ParseObjectDump:    parseObjectDump,
+		GenerateGoAssembly: generateGoAssembly,
+	})
 }
 
-func (line *Line) String() string {
+func generateLine(line internal.Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
 	if strings.HasPrefix(line.Assembly, "j") {
@@ -64,19 +67,19 @@ func (line *Line) String() string {
 				builder.WriteString("; ")
 			}
 			if len(line.Binary)-pos >= 8 {
-				builder.WriteString(fmt.Sprintf("QUAD $0x%v%v%v%v%v%v%v%v",
+				builder.WriteString(fmt.Sprintf("QUAD $0x%02x%02x%02x%02x%02x%02x%02x%02x",
 					line.Binary[pos+7], line.Binary[pos+6], line.Binary[pos+5], line.Binary[pos+4],
 					line.Binary[pos+3], line.Binary[pos+2], line.Binary[pos+1], line.Binary[pos]))
 				pos += 8
 			} else if len(line.Binary)-pos >= 4 {
-				builder.WriteString(fmt.Sprintf("LONG $0x%v%v%v%v",
+				builder.WriteString(fmt.Sprintf("LONG $0x%02x%02x%02x%02x",
 					line.Binary[pos+3], line.Binary[pos+2], line.Binary[pos+1], line.Binary[pos]))
 				pos += 4
 			} else if len(line.Binary)-pos >= 2 {
-				builder.WriteString(fmt.Sprintf("WORD $0x%v%v", line.Binary[pos+1], line.Binary[pos]))
+				builder.WriteString(fmt.Sprintf("WORD $0x%02x%02x", line.Binary[pos+1], line.Binary[pos]))
 				pos += 2
 			} else {
-				builder.WriteString(fmt.Sprintf("BYTE $0x%v", line.Binary[pos]))
+				builder.WriteString(fmt.Sprintf("BYTE $0x%02x", line.Binary[pos]))
 				pos += 1
 			}
 		}
@@ -87,7 +90,7 @@ func (line *Line) String() string {
 	return builder.String()
 }
 
-func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
+func parseAssembly(path string) (map[string][]internal.Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -101,7 +104,7 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 
 	var (
 		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]Line)
+		functions    = make(map[string][]internal.Line)
 		functionName string
 		labelName    string
 	)
@@ -112,7 +115,7 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 			continue
 		} else if nameLine.MatchString(line) {
 			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]Line, 0)
+			functions[functionName] = make([]internal.Line, 0)
 			labelName = ""
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
@@ -122,19 +125,18 @@ func parseAssembly(path string) (map[string][]Line, map[string]int, error) {
 				// If the last line is a label, append the label to the last line.
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			} else {
-				functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
+				functions[functionName] = append(functions[functionName], internal.Line{Labels: []string{labelName}})
 			}
 		} else if codeLine.MatchString(line) {
 			asm := sanitizeAsm(line)
 			if labelName == "" {
-				functions[functionName] = append(functions[functionName], Line{Assembly: asm})
+				functions[functionName] = append(functions[functionName], internal.Line{Assembly: asm})
 			} else {
 				lines := functions[functionName]
 				if len(lines) == 0 {
-					functions[functionName] = append(functions[functionName], Line{Labels: []string{labelName}})
+					functions[functionName] = append(functions[functionName], internal.Line{Labels: []string{labelName}})
 					lines = functions[functionName]
 				}
-
 				lines[len(lines)-1].Assembly = asm
 				labelName = ""
 			}
@@ -151,11 +153,10 @@ func sanitizeAsm(asm string) string {
 	asm = strings.TrimSpace(asm)
 	asm = strings.Split(asm, "//")[0]
 	asm = strings.TrimSpace(asm)
-
 	return asm
 }
 
-func parseObjectDump(dump string, functions map[string][]Line) error {
+func parseObjectDump(dump string, functions map[string][]internal.Line) error {
 	var (
 		functionName string
 		lineNumber   int
@@ -171,7 +172,7 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 			data = strings.TrimSpace(data)
 			splits := strings.Split(data, " ")
 			var (
-				binary   []string
+				binary   strings.Builder
 				assembly string
 			)
 			for i, s := range splits {
@@ -180,14 +181,17 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 					assembly = strings.TrimSpace(assembly)
 					break
 				}
-				binary = append(binary, s)
+				decoded, err := hex.DecodeString(s)
+				if err != nil {
+					return fmt.Errorf("%d: invalid amd64 instruction bytes %q: %w", i, s, err)
+				}
+				binary.Write(decoded)
 			}
 
 			assembly = sanitizeAsm(assembly)
 			if strings.Contains(assembly, "nop") {
 				continue
 			}
-
 			if assembly == "" {
 				return fmt.Errorf("try to increase --insn-width of objdump")
 			} else if strings.HasPrefix(assembly, "nop") ||
@@ -198,18 +202,18 @@ func parseObjectDump(dump string, functions map[string][]Line) error {
 			if lineNumber >= len(functions[functionName]) {
 				return fmt.Errorf("%d: unexpected objectdump line: %s", i, line)
 			}
-			functions[functionName][lineNumber].Binary = binary
+			functions[functionName][lineNumber].Binary = binary.String()
 			lineNumber++
 		}
 	}
 	return nil
 }
 
-func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) error {
+func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []internal.Function) error {
 	// generate code
 	var builder strings.Builder
 	builder.WriteString(buildTags)
-	t.writeHeader(&builder)
+	builder.WriteString(header)
 	for _, function := range functions {
 		returnSize := 0
 		if function.Type != "void" {
@@ -218,13 +222,13 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, returnSize, len(function.Parameters)*8))
 		registerIndex, xmmRegisterIndex, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, Parameter]
+		var stack []lo.Tuple2[int, internal.Parameter]
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
 				sz = 8
 			} else {
-				sz = supportedTypes[param.Type]
+				sz = internal.SupportedTypes[param.Type]
 			}
 			if offset%sz != 0 {
 				offset += sz - offset%sz
@@ -238,14 +242,14 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 					}
 					xmmRegisterIndex++
 				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
+					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
 				}
 			} else {
 				if registerIndex < len(registers) {
 					builder.WriteString(fmt.Sprintf("\tMOVQ %s+%d(FP), %s\n", param.Name, offset, registers[registerIndex]))
 					registerIndex++
 				} else {
-					stack = append(stack, lo.Tuple2[int, Parameter]{A: offset, B: param})
+					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
 				}
 			}
 			offset += sz
@@ -284,13 +288,13 @@ func (t *TranslateUnit) generateGoAssembly(path string, functions []Function) er
 				}
 				builder.WriteString("\tRET\n")
 			} else {
-				builder.WriteString(line.String())
+				builder.WriteString(generateLine(line))
 			}
 		}
 	}
 
 	// write file
-	f, err := os.Create(path)
+	f, err := os.Create(goAssemblyPath)
 	if err != nil {
 		return err
 	}

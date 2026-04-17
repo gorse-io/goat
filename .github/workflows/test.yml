@@ -87,16 +87,15 @@ jobs:
         uses: ConorMacBride/install-package@v1
         with:
           apt: qemu-user-static clang lld binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
-      - name: Cross-compile GOAT for RISC-V
-        run: GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go build -o goat .
+      - name: Install GOAT
+        run: go install .
       - name: Generate RISC-V assembly with GOAT
         env:
           CC: riscv64-linux-gnu-gcc
           CXX: riscv64-linux-gnu-g++
-          QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
           OBJDUMP: /usr/bin/riscv64-linux-gnu-objdump
           CLANG: /usr/bin/clang
-        run: qemu-riscv64-static ./goat tests/src/universal.c -o tests -march=rv64imafd
+        run: goat tests/src/universal.c -o tests --target riscv64 -march=rv64imafd
       - name: Run tests with QEMU
         env:
           QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
@@ -115,16 +114,15 @@ jobs:
         uses: ConorMacBride/install-package@v1
         with:
           apt: qemu-user-static clang lld binutils-loongarch64-linux-gnu gcc-14-loongarch64-linux-gnu g++-14-loongarch64-linux-gnu
-      - name: Cross-compile GOAT for LoongArch
-        run: GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go build -o goat .
+      - name: Install GOAT
+        run: go install .
       - name: Generate LoongArch assembly with GOAT
         env:
           CC: loongarch64-linux-gnu-gcc-14
           CXX: loongarch64-linux-gnu-g++-14
-          QEMU_LD_PREFIX: /usr/loongarch64-linux-gnu
           OBJDUMP: /usr/bin/loongarch64-linux-gnu-objdump
           CLANG: /usr/bin/clang
-        run: qemu-loongarch64-static ./goat tests/src/universal.c -o tests
+        run: goat tests/src/universal.c -o tests --target loong64
       - name: Run tests with QEMU
         env:
           QEMU_LD_PREFIX: /usr/loongarch64-linux-gnu
