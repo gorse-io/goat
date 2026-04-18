@@ -130,3 +130,30 @@ jobs:
           cd tests
           GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go test -c -o tests.test
           qemu-loongarch64-static ./tests.test -test.v
+
+  s390x:
+    name: qemu-s390x
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
+      - name: Install dependencies
+        uses: ConorMacBride/install-package@v1
+        with:
+          apt: qemu-user-static clang lld binutils-s390x-linux-gnu gcc-s390x-linux-gnu g++-s390x-linux-gnu
+      - name: Install GOAT
+        run: go install .
+      - name: Generate s390x assembly with GOAT
+        env:
+          CC: s390x-linux-gnu-gcc
+          CXX: s390x-linux-gnu-g++
+          OBJDUMP: /usr/bin/s390x-linux-gnu-objdump
+          CLANG: /usr/bin/clang
+        run: goat tests/src/universal.c -o tests --target s390x
+      - name: Run tests with QEMU
+        env:
+          QEMU_LD_PREFIX: /usr/s390x-linux-gnu
+        run: |
+          cd tests
+          GOOS=linux GOARCH=s390x CGO_ENABLED=0 go test -c -o tests.test
+          qemu-s390x-static ./tests.test -test.v
