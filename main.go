@@ -24,6 +24,7 @@ import (
 	_ "github.com/gorse-io/goat/internal/arm64"
 	_ "github.com/gorse-io/goat/internal/loong64"
 	_ "github.com/gorse-io/goat/internal/riscv64"
+	_ "github.com/gorse-io/goat/internal/s390x"
 	"github.com/spf13/cobra"
 )
 
