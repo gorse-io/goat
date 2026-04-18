@@ -271,6 +271,8 @@ func usedRegisters(lines []internal.Line) map[int]struct{} {
 	return registers
 }
 
+// R30 is the fixed g register in Go's ppc64le ABI, so machine code translated
+// from clang must not clobber it directly.
 func chooseReservedReplacement(lines []internal.Line) (int, bool) {
 	used := usedRegisters(lines)
 	if _, ok := used[30]; !ok {
@@ -282,23 +284,6 @@ func chooseReservedReplacement(lines []internal.Line) (int, bool) {
 		}
 	}
 	return 0, false
-}
-
-func calleeSavedRegisters(lines []internal.Line, replacement int, hasReplacement bool) []int {
-	used := usedRegisters(lines)
-	var saveRegs []int
-	for reg := 14; reg <= 31; reg++ {
-		if reg == 30 && hasReplacement {
-			continue
-		}
-		if _, ok := used[reg]; ok {
-			saveRegs = append(saveRegs, reg)
-		}
-	}
-	if hasReplacement {
-		saveRegs = append(saveRegs, replacement)
-	}
-	return saveRegs
 }
 
 func patchInstructionWord(line internal.Line, word uint32, assembly string) internal.Line {
@@ -337,7 +322,7 @@ func rewriteReservedRegister(line internal.Line, replacement int) (internal.Line
 	}
 }
 
-func rewriteOverflowLoad(line internal.Line, offsetMap map[int]int, replacement int, hasReplacement bool) (string, bool) {
+func rewriteOverflowLoad(line internal.Line, offsetMap map[int]overflowParam, replacement int, hasReplacement bool) (string, bool) {
 	match := overflowLoadLine.FindStringSubmatch(strings.ToLower(strings.TrimSpace(line.Assembly)))
 	if len(match) != 3 {
 		return "", false
@@ -346,11 +331,28 @@ func rewriteOverflowLoad(line internal.Line, offsetMap map[int]int, replacement 
 	if _, err := fmt.Sscanf(match[2], "%d", &oldOffset); err != nil {
 		return "", false
 	}
-	newOffset, ok := offsetMap[oldOffset]
+	overflow, ok := offsetMap[oldOffset]
 	if !ok {
 		return "", false
 	}
-	return fmt.Sprintf("\tMOVD %d(R1), %s\n", newOffset, mappedRegisterName(match[1], replacement, hasReplacement)), true
+	reg := mappedRegisterName(match[1], replacement, hasReplacement)
+	switch overflow.param.Type {
+	case "_Bool":
+		return fmt.Sprintf("\tMOVBZ %s+%d(FP), %s\n", overflow.param.Name, overflow.offset, reg), true
+	case "int64_t", "long":
+		return fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", overflow.param.Name, overflow.offset, reg), true
+	default:
+		if overflow.param.Pointer {
+			return fmt.Sprintf("\tMOVD %s+%d(FP), %s\n", overflow.param.Name, overflow.offset, reg), true
+		}
+		return "", false
+	}
+}
+
+type overflowParam struct {
+	offset int
+	slot   int
+	param  internal.Parameter
 }
 
 func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []internal.Function) error {
@@ -359,11 +361,6 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	builder.WriteString(header)
 	for _, function := range functions {
 		var body strings.Builder
-		type overflowParam struct {
-			offset int
-			slot   int
-			param  internal.Parameter
-		}
 		var overflowParams []overflowParam
 		registerSlot, fpRegisterCount, offset := 0, 0, 0
 		for _, param := range function.Parameters {
@@ -405,40 +402,16 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		if hasReplacement && replacement == 0 {
 			return fmt.Errorf("ppc64le function %s uses r30 but no free callee-saved register is available", function.Name)
 		}
-		saveRegs := calleeSavedRegisters(function.Lines, replacement, hasReplacement)
-		saveAreaSize := len(saveRegs) * 8
 		scratchSize := stackScratchSize(function.Lines)
-		overflowShadowSize := len(overflowParams) * 8
-		frameSize := saveAreaSize + overflowShadowSize + scratchSize
+		frameSize := scratchSize
 		returnLabel := fmt.Sprintf("%s_return", function.Name)
-		overflowOffsetMap := make(map[int]int)
-		saveAreaBase := ppc64LinkageSize
-		overflowShadowBase := saveAreaBase + saveAreaSize
+		overflowOffsetMap := make(map[int]overflowParam)
 
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), 4, $%d-%d\n", function.Name, frameSize, argSize))
 		builder.WriteString(body.String())
-		for i, reg := range saveRegs {
-			builder.WriteString(fmt.Sprintf("\tMOVD R%d, %d(R1)\n", reg, saveAreaBase+i*8))
-		}
-		for i, overflow := range overflowParams {
+		for _, overflow := range overflowParams {
 			originalOffset := 96 + (overflow.slot-len(registers))*8
-			stackOffset := overflowShadowBase + i*8
-			overflowOffsetMap[originalOffset] = stackOffset
-			switch overflow.param.Type {
-			case "_Bool":
-				builder.WriteString(fmt.Sprintf("\tMOVBZ %s+%d(FP), R11\n", overflow.param.Name, overflow.offset))
-				builder.WriteString(fmt.Sprintf("\tMOVD R11, %d(R1)\n", stackOffset))
-			case "int64_t", "long":
-				builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R11\n", overflow.param.Name, overflow.offset))
-				builder.WriteString(fmt.Sprintf("\tMOVD R11, %d(R1)\n", stackOffset))
-			default:
-				if overflow.param.Pointer {
-					builder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R11\n", overflow.param.Name, overflow.offset))
-					builder.WriteString(fmt.Sprintf("\tMOVD R11, %d(R1)\n", stackOffset))
-				} else {
-					return fmt.Errorf("unsupported ppc64le stack argument type: %v", overflow.param.Type)
-				}
-			}
+			overflowOffsetMap[originalOffset] = overflow
 		}
 		builder.WriteString(fmt.Sprintf("\tMOVD $·%s(SB), R12\n", function.Name))
 		for _, line := range function.Lines {
@@ -462,9 +435,6 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		}
 		builder.WriteString(returnLabel)
 		builder.WriteString(":\n")
-		for i := len(saveRegs) - 1; i >= 0; i-- {
-			builder.WriteString(fmt.Sprintf("\tMOVD %d(R1), R%d\n", saveAreaBase+i*8, saveRegs[i]))
-		}
 		if function.Type != "void" {
 			switch function.Type {
 			case "int64_t", "long":
