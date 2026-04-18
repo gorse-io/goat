@@ -48,7 +48,6 @@ func init() {
 		GOARCH:             "s390x",
 		BuildTags:          "//go:build !noasm && s390x\n",
 		ClangTriple:        "s390x-linux-gnu",
-		ObjdumpPath:        "s390x-linux-gnu-objdump",
 		ParseAssembly:      parseAssembly,
 		ParseObjectDump:    parseObjectDump,
 		GenerateGoAssembly: generateGoAssembly,
