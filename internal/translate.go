@@ -162,12 +162,16 @@ func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mllvm", "-inline-threshold=1000",
 		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	args = append(args, t.Target.ClangOptions...)
+	compileArgs := []string{"-target", t.Target.ClangTriple}
+	if sysroot := GetSysrootPath(t.Target); sysroot != "" {
+		compileArgs = append(compileArgs, "--sysroot="+sysroot)
+	}
 	clangPath := GetClangPath()
-	_, err := RunCommand(clangPath, append([]string{"-S", "-target", t.Target.ClangTriple, "-c", t.Source, "-o", t.Assembly}, args...)...)
+	_, err := RunCommand(clangPath, append(append([]string{"-S"}, compileArgs...), append([]string{"-c", t.Source, "-o", t.Assembly}, args...)...)...)
 	if err != nil {
 		return err
 	}
-	_, err = RunCommand(clangPath, append([]string{"-target", t.Target.ClangTriple, "-c", t.Assembly, "-o", t.Object}, args...)...)
+	_, err = RunCommand(clangPath, append(compileArgs, append([]string{"-c", t.Assembly, "-o", t.Object}, args...)...)...)
 	return err
 }
 
@@ -282,24 +286,9 @@ func GetClangPath() string {
 func GetObjdumpPath(target Target) string {
 	path := os.Getenv("OBJDUMP")
 	if path != "" {
-		resolvedPath, err := exec.LookPath(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to find objdump %q: %v\n", path, err)
-			os.Exit(1)
-		}
-		return resolvedPath
+		return path
 	}
-	name := getCrossObjdumpName(target.GOARCH)
-	resolvedPath, err := exec.LookPath(name)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to find target objdump %q for %s: %v\n", name, target.GOARCH, err)
-		os.Exit(1)
-	}
-	return resolvedPath
-}
-
-func getCrossObjdumpName(goarch string) string {
-	switch goarch {
+	switch target.GOARCH {
 	case "amd64":
 		return "x86_64-linux-gnu-objdump"
 	case "arm64":
@@ -309,8 +298,29 @@ func getCrossObjdumpName(goarch string) string {
 	case "riscv64":
 		return "riscv64-linux-gnu-objdump"
 	default:
-		fmt.Fprintf(os.Stderr, "unsupported architecture: %s\n", goarch)
+		fmt.Fprintf(os.Stderr, "unsupported architecture: %s\n", target.GOARCH)
 		os.Exit(1)
+		return ""
+	}
+}
+
+// GetSysrootPath returns the path to the target-specific sysroot directory.
+// If SYSROOT is set, it takes precedence over auto-detected defaults.
+func GetSysrootPath(target Target) string {
+	path := os.Getenv("SYSROOT")
+	if path != "" {
+		return path
+	}
+	switch target.GOARCH {
+	case "amd64":
+		return "/usr/x86_64-linux-gnu"
+	case "arm64":
+		return "/usr/aarch64-linux-gnu"
+	case "loong64":
+		return "/usr/loongarch64-linux-gnu"
+	case "riscv64":
+		return "/usr/riscv64-linux-gnu"
+	default:
 		return ""
 	}
 }
