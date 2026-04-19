@@ -151,7 +151,7 @@ func (t *TranslateUnit) compile(args ...string) error {
 		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	args = append(args, t.Target.ClangOptions...)
 	clangPath := GetClangPath()
-	_, err := RunCommand(clangPath, append(append([]string{"-S"}, "-target", t.Target.ClangTriple), append([]string{"-c", t.Source, "-o", t.Assembly}, args...)...)...)
+	_, err := RunCommand(clangPath, append([]string{"-S", "-target", t.Target.ClangTriple, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	if err != nil {
 		return err
 	}
