@@ -113,7 +113,7 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang binutils-loongarch64-linux-gnu gcc-14-loongarch64-linux-gnu g++-14-loongarch64-linux-gnu
+          apt: qemu-user-static clang binutils-loongarch64-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate LoongArch assembly with GOAT
