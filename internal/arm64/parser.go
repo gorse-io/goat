@@ -44,7 +44,7 @@ func init() {
 	internal.RegisterTarget("arm64", internal.Target{
 		GOARCH:      "arm64",
 		BuildTags:   "//go:build !noasm && arm64\n",
-		ClangTriple: "arm64-linux-gnu",
+		ClangTriple: "aarch64-linux-gnu",
 		// R18 is the "platform register", reserved on the Apple platform.
 		// See https://go.dev/doc/asm#arm64
 		ClangOptions:       []string{"-ffixed-x18"},

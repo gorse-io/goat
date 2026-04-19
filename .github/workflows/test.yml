@@ -113,15 +113,10 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang lld binutils-loongarch64-linux-gnu gcc-14-loongarch64-linux-gnu g++-14-loongarch64-linux-gnu
+          apt: qemu-user-static clang binutils-loongarch64-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate LoongArch assembly with GOAT
-        env:
-          CC: loongarch64-linux-gnu-gcc-14
-          CXX: loongarch64-linux-gnu-g++-14
-          OBJDUMP: /usr/bin/loongarch64-linux-gnu-objdump
-          CLANG: /usr/bin/clang
         run: goat tests/src/universal.c -o tests --target loong64
       - name: Run tests with QEMU
         env:
@@ -140,16 +135,11 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang lld binutils-s390x-linux-gnu gcc-s390x-linux-gnu g++-s390x-linux-gnu
+          apt: qemu-user-static clang binutils-s390x-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate s390x assembly with GOAT
-        env:
-          CC: s390x-linux-gnu-gcc
-          CXX: s390x-linux-gnu-g++
-          OBJDUMP: /usr/bin/s390x-linux-gnu-objdump
-          CLANG: /usr/bin/clang
-        run: goat tests/src/universal.c -o tests --target s390x
+        run: goat tests/src/universal.c -o tests --target s390x -e=-fzvector
       - name: Run tests with QEMU
         env:
           QEMU_LD_PREFIX: /usr/s390x-linux-gnu
