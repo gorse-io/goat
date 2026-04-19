@@ -14,6 +14,7 @@
 package internal
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -210,14 +212,14 @@ func RunCommand(name string, arg ...string) (string, error) {
 		fmt.Fprintf(os.Stderr, "Running %v\n", append([]string{name}, arg...))
 	}
 	cmd := exec.Command(name, arg...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if output != nil {
-			return "", errors.New(string(output))
-		}
-		return "", err
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", errors.New(stderr.String())
 	}
-	return string(output), nil
+	return stdout.String(), nil
 }
 
 func FetchVersion(command string) string {
@@ -271,18 +273,8 @@ func GetObjdumpPath(target Target) string {
 	if path != "" {
 		return path
 	}
-	switch target.GOARCH {
-	case "amd64":
-		return "x86_64-linux-gnu-objdump"
-	case "arm64":
-		return "aarch64-linux-gnu-objdump"
-	case "loong64":
-		return "loongarch64-linux-gnu-objdump"
-	case "riscv64":
-		return "riscv64-linux-gnu-objdump"
-	default:
-		fmt.Fprintf(os.Stderr, "unsupported architecture: %s\n", target.GOARCH)
-		os.Exit(1)
-		return ""
+	if target.GOARCH == runtime.GOARCH {
+		return "objdump"
 	}
+	return target.ClangTriple + "-objdump"
 }

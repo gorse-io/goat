@@ -1,5 +1,9 @@
 #if defined(__aarch64__)
 #include <arm_neon.h>
+#elif defined(__riscv_vector)
+#include <riscv_vector.h>
+#elif defined(__s390x__)
+#include <vecintrin.h>
 #endif
 
 long add(long a, long b)
