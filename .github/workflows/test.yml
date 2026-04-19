@@ -117,9 +117,6 @@ jobs:
       - name: Install GOAT
         run: go install .
       - name: Generate LoongArch assembly with GOAT
-        env:
-          OBJDUMP: /usr/bin/loongarch64-linux-gnu-objdump
-          CLANG: /usr/bin/clang
         run: goat tests/src/universal.c -o tests --target loong64
       - name: Run tests with QEMU
         env:

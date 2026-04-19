@@ -150,13 +150,12 @@ func (t *TranslateUnit) compile(args ...string) error {
 	args = append(args, "-mllvm", "-inline-threshold=1000",
 		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	args = append(args, t.Target.ClangOptions...)
-	compileArgs := []string{"-target", t.Target.ClangTriple}
 	clangPath := GetClangPath()
-	_, err := RunCommand(clangPath, append(append([]string{"-S"}, compileArgs...), append([]string{"-c", t.Source, "-o", t.Assembly}, args...)...)...)
+	_, err := RunCommand(clangPath, append(append([]string{"-S"}, "-target", t.Target.ClangTriple), append([]string{"-c", t.Source, "-o", t.Assembly}, args...)...)...)
 	if err != nil {
 		return err
 	}
-	_, err = RunCommand(clangPath, append(compileArgs, append([]string{"-c", t.Assembly, "-o", t.Object}, args...)...)...)
+	_, err = RunCommand(clangPath, append([]string{"-target", t.Target.ClangTriple, "-c", t.Assembly, "-o", t.Object}, args...)...)
 	return err
 }
 
