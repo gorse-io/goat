@@ -1,3 +1,7 @@
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 long add(long a, long b)
 {
     return a + b;

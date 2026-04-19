@@ -118,8 +118,6 @@ jobs:
         run: go install .
       - name: Generate LoongArch assembly with GOAT
         env:
-          CC: loongarch64-linux-gnu-gcc-14
-          CXX: loongarch64-linux-gnu-g++-14
           OBJDUMP: /usr/bin/loongarch64-linux-gnu-objdump
           CLANG: /usr/bin/clang
         run: goat tests/src/universal.c -o tests --target loong64
@@ -144,11 +142,6 @@ jobs:
       - name: Install GOAT
         run: go install .
       - name: Generate s390x assembly with GOAT
-        env:
-          CC: s390x-linux-gnu-gcc
-          CXX: s390x-linux-gnu-g++
-          OBJDUMP: /usr/bin/s390x-linux-gnu-objdump
-          CLANG: /usr/bin/clang
         run: goat tests/src/universal.c -o tests --target s390x
       - name: Run tests with QEMU
         env:

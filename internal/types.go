@@ -16,8 +16,8 @@ package internal
 import (
 	"fmt"
 	"os"
-
-	"modernc.org/cc/v4"
+	"path/filepath"
+	"strings"
 )
 
 type ParameterType struct {
@@ -65,58 +65,129 @@ type Function struct {
 	StackSize  int
 }
 
-// convertFunction extracts the function definition from cc.DirectDeclarator.
-func (t *TranslateUnit) convertFunction(functionDefinition *cc.FunctionDefinition) (Function, error) {
-	declarationSpecifiers := functionDefinition.DeclarationSpecifiers
-	if declarationSpecifiers.Case != cc.DeclarationSpecifiersTypeSpec {
-		return Function{}, fmt.Errorf("invalid function return type: %v", declarationSpecifiers.Case)
-	}
-	returnType := declarationSpecifiers.TypeSpecifier.Token.SrcStr()
-	directDeclarator := functionDefinition.Declarator.DirectDeclarator
-	if directDeclarator.Case != cc.DirectDeclaratorFuncParam {
-		return Function{}, fmt.Errorf("invalid function parameter: %v", directDeclarator.Case)
-	}
-	params, err := t.convertFunctionParameters(directDeclarator.ParameterTypeList.ParameterList)
-	if err != nil {
-		return Function{}, err
-	}
-	return Function{
-		Name:       directDeclarator.DirectDeclarator.Token.SrcStr(),
-		Position:   directDeclarator.Position().Line,
-		Type:       returnType,
-		Parameters: params,
-	}, nil
+type clangASTNode struct {
+	Kind   string         `json:"kind"`
+	Name   string         `json:"name"`
+	Type   *clangASTType  `json:"type"`
+	Loc    clangASTLoc    `json:"loc"`
+	Inline bool           `json:"inline"`
+	Inner  []clangASTNode `json:"inner"`
 }
 
-// convertFunctionParameters extracts function parameters from cc.ParameterList.
-func (t *TranslateUnit) convertFunctionParameters(params *cc.ParameterList) ([]Parameter, error) {
-	declaration := params.ParameterDeclaration
-	paramName := declaration.Declarator.DirectDeclarator.Token.SrcStr()
-	var paramType string
-	if declaration.DeclarationSpecifiers.Case == cc.DeclarationSpecifiersTypeQual {
-		paramType = declaration.DeclarationSpecifiers.DeclarationSpecifiers.TypeSpecifier.Token.SrcStr()
-	} else {
-		paramType = declaration.DeclarationSpecifiers.TypeSpecifier.Token.SrcStr()
-	}
-	isPointer := declaration.Declarator.Pointer != nil
-	if _, ok := SupportedTypes[paramType]; !ok && !isPointer {
-		position := declaration.Position()
-		return nil, fmt.Errorf("%v:%v:%v: error: unsupported type: %v",
-			position.Filename, position.Line+t.Offset, position.Column, paramType)
-	}
-	paramNames := []Parameter{{
-		Name: paramName,
-		ParameterType: ParameterType{
-			Type:    paramType,
-			Pointer: isPointer,
-		},
-	}}
-	if params.ParameterList != nil {
-		nextParamNames, err := t.convertFunctionParameters(params.ParameterList)
+type clangASTType struct {
+	QualType string `json:"qualType"`
+}
+
+type clangASTLoc struct {
+	File         string       `json:"file"`
+	Line         int          `json:"line"`
+	IncludedFrom *clangASTLoc `json:"includedFrom"`
+}
+
+func (t *TranslateUnit) collectClangFunctions(node *clangASTNode, functions *[]Function) error {
+	if node.Kind == "FunctionDecl" {
+		function, ok, err := t.convertClangFunction(node)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		paramNames = append(paramNames, nextParamNames...)
+		if ok {
+			*functions = append(*functions, function)
+		}
 	}
-	return paramNames, nil
+	for i := range node.Inner {
+		if err := t.collectClangFunctions(&node.Inner[i], functions); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *TranslateUnit) convertClangFunction(node *clangASTNode) (Function, bool, error) {
+	if !t.isSourceFunction(node) || node.Inline {
+		return Function{}, false, nil
+	}
+
+	params := make([]Parameter, 0)
+	for i := range node.Inner {
+		child := node.Inner[i]
+		if child.Kind != "ParmVarDecl" {
+			continue
+		}
+		if child.Type == nil {
+			return Function{}, false, fmt.Errorf("missing parameter type for function %v", node.Name)
+		}
+		paramType, isPointer := parseClangQualType(child.Type.QualType)
+		if _, ok := SupportedTypes[paramType]; !ok && !isPointer {
+			line := child.Loc.Line
+			if line == 0 {
+				line = node.Loc.Line
+			}
+			return Function{}, false, fmt.Errorf("%v:%v:1: error: unsupported type: %v", t.Source, line+t.Offset, paramType)
+		}
+		name := child.Name
+		if name == "" {
+			name = fmt.Sprintf("arg%d", len(params)+1)
+		}
+		params = append(params, Parameter{
+			Name: name,
+			ParameterType: ParameterType{
+				Type:    paramType,
+				Pointer: isPointer,
+			},
+		})
+	}
+
+	returnType, _ := parseClangQualType(clangFunctionReturnType(node))
+	return Function{
+		Name:       node.Name,
+		Position:   node.Loc.Line,
+		Type:       returnType,
+		Parameters: params,
+	}, true, nil
+}
+
+func (t *TranslateUnit) isSourceFunction(node *clangASTNode) bool {
+	if node.Name == "" || node.Loc.Line == 0 || node.Loc.IncludedFrom != nil {
+		return false
+	}
+	hasBody := false
+	for i := range node.Inner {
+		if node.Inner[i].Kind == "CompoundStmt" {
+			hasBody = true
+			break
+		}
+	}
+	if !hasBody {
+		return false
+	}
+	return node.Loc.File == "" || filepath.Clean(node.Loc.File) == filepath.Clean(t.Source)
+}
+
+func clangFunctionReturnType(node *clangASTNode) string {
+	if node.Type == nil {
+		return ""
+	}
+	qualType := node.Type.QualType
+	idx := strings.IndexRune(qualType, '(')
+	if idx == -1 {
+		return strings.TrimSpace(qualType)
+	}
+	return strings.TrimSpace(qualType[:idx])
+}
+
+func parseClangQualType(qualType string) (string, bool) {
+	qualType = strings.TrimSpace(qualType)
+	isPointer := strings.Contains(qualType, "*")
+	qualType = strings.ReplaceAll(qualType, "*", " ")
+	parts := strings.Fields(qualType)
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch part {
+		case "const", "volatile", "restrict", "static", "register":
+			continue
+		default:
+			filtered = append(filtered, part)
+		}
+	}
+	return strings.Join(filtered, " "), isPointer
 }

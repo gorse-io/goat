@@ -14,17 +14,15 @@
 package internal
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
-
-	"modernc.org/cc/v4"
 )
 
 var SupportedTypes = map[string]int{
@@ -63,39 +61,27 @@ func NewTranslateUnit(source string, outputDir string, target Target, options ..
 	}
 }
 
-// ParseSource parse C source file and extract functions declarations.
+// ParseSource parses the C source file and extracts function declarations.
 func (t *TranslateUnit) ParseSource() ([]Function, error) {
-	f, err := os.Open(t.Source)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := cc.NewConfig(runtime.GOOS, t.Target.GOARCH)
-	if err != nil {
-		return nil, err
-	}
-	ast, err := cc.Parse(cfg, []cc.Source{
-		{Name: "<predefined>", Value: cfg.Predefined},
-		{Name: "<builtin>", Value: cc.Builtin},
-		{Name: "<prologue>", Value: t.Target.Prologue},
-		{Name: t.Source, Value: f},
-	})
+	clangPath := GetClangPath()
+	args := []string{"-target", t.Target.ClangTriple}
+	args = append(args, t.Target.ClangOptions...)
+	args = append(args, t.Options...)
+	args = append(args, "-Xclang", "-ast-dump=json", "-fsyntax-only", t.Source)
+
+	output, err := RunCommand(clangPath, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse source file %v: %w", t.Source, err)
 	}
-	var functions []Function
-	for tu := ast.TranslationUnit; tu != nil; tu = tu.TranslationUnit {
-		externalDeclaration := tu.ExternalDeclaration
-		if externalDeclaration.Position().Filename == t.Source && externalDeclaration.Case == cc.ExternalDeclarationFuncDef {
-			functionSpecifier := externalDeclaration.FunctionDefinition.DeclarationSpecifiers.FunctionSpecifier
-			if functionSpecifier != nil && functionSpecifier.Case == cc.FunctionSpecifierInline {
-				continue
-			}
-			function, err := t.convertFunction(externalDeclaration.FunctionDefinition)
-			if err != nil {
-				return nil, err
-			}
-			functions = append(functions, function)
-		}
+
+	var root clangASTNode
+	if err := json.Unmarshal([]byte(output), &root); err != nil {
+		return nil, fmt.Errorf("failed to decode clang AST for %v: %w", t.Source, err)
+	}
+
+	functions := make([]Function, 0)
+	if err := t.collectClangFunctions(&root, &functions); err != nil {
+		return nil, err
 	}
 	sort.Slice(functions, func(i, j int) bool {
 		return functions[i].Position < functions[j].Position
@@ -163,9 +149,6 @@ func (t *TranslateUnit) compile(args ...string) error {
 		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	args = append(args, t.Target.ClangOptions...)
 	compileArgs := []string{"-target", t.Target.ClangTriple}
-	if sysroot := GetSysrootPath(t.Target); sysroot != "" {
-		compileArgs = append(compileArgs, "--sysroot="+sysroot)
-	}
 	clangPath := GetClangPath()
 	_, err := RunCommand(clangPath, append(append([]string{"-S"}, compileArgs...), append([]string{"-c", t.Source, "-o", t.Assembly}, args...)...)...)
 	if err != nil {
@@ -300,27 +283,6 @@ func GetObjdumpPath(target Target) string {
 	default:
 		fmt.Fprintf(os.Stderr, "unsupported architecture: %s\n", target.GOARCH)
 		os.Exit(1)
-		return ""
-	}
-}
-
-// GetSysrootPath returns the path to the target-specific sysroot directory.
-// If SYSROOT is set, it takes precedence over auto-detected defaults.
-func GetSysrootPath(target Target) string {
-	path := os.Getenv("SYSROOT")
-	if path != "" {
-		return path
-	}
-	switch target.GOARCH {
-	case "amd64":
-		return "/usr/x86_64-linux-gnu"
-	case "arm64":
-		return "/usr/aarch64-linux-gnu"
-	case "loong64":
-		return "/usr/loongarch64-linux-gnu"
-	case "riscv64":
-		return "/usr/riscv64-linux-gnu"
-	default:
 		return ""
 	}
 }
