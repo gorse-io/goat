@@ -159,7 +159,7 @@ func (t *TranslateUnit) compile(args ...string) error {
 	clangPath := GetClangPath()
 	var err error
 	if t.Target.GOARCH == "ppc64le" {
-		_, err = RunCommand("ppc64le-linux-gnu-gcc", append([]string{"-S", "-c", t.Source, "-o", t.Assembly}, args...)...)
+		_, err = RunCommand("powerpc64le-linux-gnu-gcc", append([]string{"-S", "-c", t.Source, "-o", t.Assembly}, args...)...)
 	} else {
 		_, err = RunCommand(clangPath, append([]string{"-S", "-target", t.Target.ClangTriple, "-c", t.Source, "-o", t.Assembly}, args...)...)
 	}
@@ -167,7 +167,7 @@ func (t *TranslateUnit) compile(args ...string) error {
 		return err
 	}
 	if t.Target.GOARCH == "ppc64le" {
-		_, err = RunCommand("ppc64le-linux-gnu-gcc", append([]string{"-c", t.Assembly, "-o", t.Object}, args...)...)
+		_, err = RunCommand("powerpc64le-linux-gnu-gcc", append([]string{"-c", t.Assembly, "-o", t.Object}, args...)...)
 	} else {
 		_, err = RunCommand(clangPath, append([]string{"-target", t.Target.ClangTriple, "-c", t.Assembly, "-o", t.Object}, args...)...)
 	}
