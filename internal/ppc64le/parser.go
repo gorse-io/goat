@@ -31,7 +31,7 @@ var (
 	labelLine        = regexp.MustCompile(`^\.L[\w$]*:.*$`)
 	codeLine         = regexp.MustCompile(`^\s+\w+.+$`)
 	stackRefLine     = regexp.MustCompile(`-(\d+)\(([rR]?1)\)`)
-	stackMoveLine    = regexp.MustCompile(`^(std|ld)\s+r(\d+),(-\d+)\(r1\)$`)
+	stackMoveLine    = regexp.MustCompile(`^(std|ld|stw|lwz)\s+r(\d+),(-\d+)\(r1\)$`)
 	overflowLoadLine = regexp.MustCompile(`^ld\s+r(\d+),(\d+)\(r1\)$`)
 	registerLine     = regexp.MustCompile(`\br(\d+)\b`)
 
@@ -48,7 +48,6 @@ func init() {
 	internal.RegisterTarget("ppc64le", internal.Target{
 		GOARCH:             "ppc64le",
 		BuildTags:          "//go:build !noasm && ppc64le\n",
-		CompilerName:       "gcc",
 		ClangTriple:        "powerpc64le-linux-gnu",
 		ClangOptions:       []string{"-O1"},
 		ParseAssembly:      parseAssembly,
@@ -254,6 +253,10 @@ func rewriteStackSpill(asm string, frameSize int, replacement int, hasReplacemen
 		return fmt.Sprintf("\tMOVD %s, %d(R1)\n", reg, currentOffset), true
 	case "ld":
 		return fmt.Sprintf("\tMOVD %d(R1), %s\n", currentOffset, reg), true
+	case "stw":
+		return fmt.Sprintf("\tMOVW %s, %d(R1)\n", reg, currentOffset), true
+	case "lwz":
+		return fmt.Sprintf("\tMOVWZ %d(R1), %s\n", currentOffset, reg), true
 	default:
 		return "", false
 	}

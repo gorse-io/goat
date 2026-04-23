@@ -284,8 +284,8 @@ func SetVerbose(v bool) {
 }
 
 func (t *TranslateUnit) compilerName() string {
-	if t.Target.CompilerName != "" {
-		return t.Target.CompilerName
+	if t.Target.GOARCH == "ppc64le" {
+		return compilerGCC
 	}
 	return compilerClang
 }
@@ -298,6 +298,7 @@ func (t *TranslateUnit) compilerFlags() []string {
 			"-fno-asynchronous-unwind-tables",
 			"-fno-exceptions",
 			"-fno-builtin",
+			"-ffixed-r0",
 			"-ffixed-r30",
 		}
 	default:
@@ -337,7 +338,7 @@ func GetGCCPath(target Target) string {
 }
 
 func GetCompilerPath(target Target) string {
-	if target.CompilerName == compilerGCC {
+	if target.GOARCH == "ppc64le" {
 		return GetGCCPath(target)
 	}
 	return GetClangPath()

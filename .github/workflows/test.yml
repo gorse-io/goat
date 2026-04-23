@@ -157,15 +157,10 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang lld binutils-powerpc64le-linux-gnu gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu
+          apt: qemu-user-static clang binutils-powerpc64le-linux-gnu gcc-powerpc64le-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate ppc64le assembly with GOAT
-        env:
-          CC: powerpc64le-linux-gnu-gcc
-          CXX: powerpc64le-linux-gnu-g++
-          OBJDUMP: /usr/bin/powerpc64le-linux-gnu-objdump
-          CLANG: /usr/bin/clang
         run: goat tests/src/universal.c -o tests --target ppc64le
       - name: Run tests with QEMU
         env:
