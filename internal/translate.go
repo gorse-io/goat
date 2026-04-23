@@ -147,15 +147,30 @@ func (t *TranslateUnit) GenerateGoStubs(functions []Function) error {
 }
 
 func (t *TranslateUnit) compile(args ...string) error {
-	args = append(args, "-mllvm", "-inline-threshold=1000",
-		"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
+	if t.Target.GOARCH == "ppc64le" {
+		args = append(args, "-finline-limit=1000",
+			"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-builtin",
+			"-ffixed-r0", "-ffixed-r30")
+	} else {
+		args = append(args, "-mllvm", "-inline-threshold=1000",
+			"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
+	}
 	args = append(args, t.Target.ClangOptions...)
 	clangPath := GetClangPath()
-	_, err := RunCommand(clangPath, append([]string{"-S", "-target", t.Target.ClangTriple, "-c", t.Source, "-o", t.Assembly}, args...)...)
+	var err error
+	if t.Target.GOARCH == "ppc64le" {
+		_, err = RunCommand("powerpc64le-linux-gnu-gcc", append([]string{"-S", "-c", t.Source, "-o", t.Assembly}, args...)...)
+	} else {
+		_, err = RunCommand(clangPath, append([]string{"-S", "-target", t.Target.ClangTriple, "-c", t.Source, "-o", t.Assembly}, args...)...)
+	}
 	if err != nil {
 		return err
 	}
-	_, err = RunCommand(clangPath, append([]string{"-target", t.Target.ClangTriple, "-c", t.Assembly, "-o", t.Object}, args...)...)
+	if t.Target.GOARCH == "ppc64le" {
+		_, err = RunCommand("powerpc64le-linux-gnu-gcc", append([]string{"-c", t.Assembly, "-o", t.Object}, args...)...)
+	} else {
+		_, err = RunCommand(clangPath, append([]string{"-target", t.Target.ClangTriple, "-c", t.Assembly, "-o", t.Object}, args...)...)
+	}
 	return err
 }
 
