@@ -21,6 +21,7 @@ import (
 type Target struct {
 	GOARCH             string
 	BuildTags          string
+	CompilerName       string
 	ClangTriple        string
 	Prologue           string
 	ClangOptions       []string

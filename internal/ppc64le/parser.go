@@ -27,8 +27,8 @@ import (
 
 var (
 	attributeLine    = regexp.MustCompile(`^\s+\..+$`)
-	nameLine         = regexp.MustCompile(`^\w+:.+$`)
-	labelLine        = regexp.MustCompile(`^\.LBB\d+_\d+:.*$`)
+	nameLine         = regexp.MustCompile(`^\w+:.*$`)
+	labelLine        = regexp.MustCompile(`^\.L[\w$]*:.*$`)
 	codeLine         = regexp.MustCompile(`^\s+\w+.+$`)
 	stackRefLine     = regexp.MustCompile(`-(\d+)\(([rR]?1)\)`)
 	stackMoveLine    = regexp.MustCompile(`^(std|ld)\s+r(\d+),(-\d+)\(r1\)$`)
@@ -48,6 +48,7 @@ func init() {
 	internal.RegisterTarget("ppc64le", internal.Target{
 		GOARCH:             "ppc64le",
 		BuildTags:          "//go:build !noasm && ppc64le\n",
+		CompilerName:       "gcc",
 		ClangTriple:        "powerpc64le-linux-gnu",
 		ClangOptions:       []string{"-O1"},
 		ParseAssembly:      parseAssembly,
