@@ -15,6 +15,7 @@ package s390x
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -42,55 +43,8 @@ var (
 
 	registers   = []string{"R2", "R3", "R4", "R5", "R6"}
 	fpRegisters = []string{"F0", "F2", "F4", "F6"}
-	dataSymbols []dataSymbol
+	dataSymbols []internal.DataSymbol
 )
-
-type dataSymbol struct {
-	Name string
-	Data []byte
-}
-
-func generateDataSymbols(symbols []dataSymbol) string {
-	var builder strings.Builder
-	for _, symbol := range symbols {
-		for offset := 0; offset < len(symbol.Data); {
-			remaining := len(symbol.Data) - offset
-			size := 8
-			if remaining < size {
-				size = remaining
-			}
-			var value uint64
-			for i := 0; i < size; i++ {
-				value = (value << 8) | uint64(symbol.Data[offset+i])
-			}
-			builder.WriteString(fmt.Sprintf("DATA %s<>+0x%03x(SB)/%d, $0x%0*x\n", symbol.Name, offset, size, size*2, value))
-			offset += size
-		}
-		builder.WriteString(fmt.Sprintf("GLOBL %s<>(SB), 8, $%d\n\n", symbol.Name, len(symbol.Data)))
-	}
-	return builder.String()
-}
-
-func parseDataDirective(line string) ([]byte, bool, error) {
-	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, ".ascii") || strings.HasPrefix(line, ".asciz") {
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			return nil, false, fmt.Errorf("invalid ascii directive: %s", line)
-		}
-		value := strings.TrimSpace(strings.TrimPrefix(line, parts[0]))
-		decoded, err := strconv.Unquote(value)
-		if err != nil {
-			return nil, false, err
-		}
-		data := []byte(decoded)
-		if strings.HasPrefix(line, ".asciz") {
-			data = append(data, 0)
-		}
-		return data, true, nil
-	}
-	return nil, false, nil
-}
 
 func init() {
 	internal.RegisterTarget("s390x", internal.Target{
@@ -141,7 +95,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		labelName    string
 		dataName     string
 		dataSection  bool
-		data         []dataSymbol
+		data         []internal.DataSymbol
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -152,12 +106,12 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		}
 		switch {
 		case func() bool {
-			parsed, ok, err := parseDataDirective(line)
+			parsed, ok, err := internal.ParseDataDirective(line)
 			if err != nil {
 				return false
 			}
 			if ok && dataName != "" {
-				data = append(data, dataSymbol{Name: dataName, Data: parsed})
+				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 				dataName = ""
 				return true
 			}
@@ -334,7 +288,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
-	builder.WriteString(generateDataSymbols(dataSymbols))
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.BigEndian))
 	for _, function := range functions {
 		var body strings.Builder
 		registerCount, fpRegisterCount, offset := 0, 0, 0

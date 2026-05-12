@@ -15,11 +15,11 @@ package amd64
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -40,13 +40,8 @@ var (
 
 	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
 	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
-	dataSymbols  []dataSymbol
+	dataSymbols  []internal.DataSymbol
 )
-
-type dataSymbol struct {
-	Name string
-	Data []byte
-}
 
 func amd64Register(reg string) string {
 	switch strings.TrimPrefix(reg, "%") {
@@ -99,27 +94,6 @@ func init() {
 	})
 }
 
-func generateDataSymbols(symbols []dataSymbol) string {
-	var builder strings.Builder
-	for _, symbol := range symbols {
-		for offset := 0; offset < len(symbol.Data); {
-			remaining := len(symbol.Data) - offset
-			size := 8
-			if remaining < size {
-				size = remaining
-			}
-			var value uint64
-			for i := 0; i < size; i++ {
-				value |= uint64(symbol.Data[offset+i]) << (8 * i)
-			}
-			builder.WriteString(fmt.Sprintf("DATA %s<>+0x%03x(SB)/%d, $0x%0*x\n", symbol.Name, offset, size, size*2, value))
-			offset += size
-		}
-		builder.WriteString(fmt.Sprintf("GLOBL %s<>(SB), 8, $%d\n\n", symbol.Name, len(symbol.Data)))
-	}
-	return builder.String()
-}
-
 func generateLine(line internal.Line) string {
 	var builder strings.Builder
 	builder.WriteString("\t")
@@ -160,27 +134,6 @@ func generateLine(line internal.Line) string {
 	return builder.String()
 }
 
-func parseDataDirective(line string) ([]byte, bool, error) {
-	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, ".ascii") || strings.HasPrefix(line, ".asciz") {
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			return nil, false, fmt.Errorf("invalid ascii directive: %s", line)
-		}
-		value := strings.TrimSpace(strings.TrimPrefix(line, parts[0]))
-		decoded, err := strconv.Unquote(value)
-		if err != nil {
-			return nil, false, err
-		}
-		data := []byte(decoded)
-		if strings.HasPrefix(line, ".asciz") {
-			data = append(data, 0)
-		}
-		return data, true, nil
-	}
-	return nil, false, nil
-}
-
 func parseAssembly(path string) (map[string][]internal.Line, map[string]int, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -200,7 +153,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		labelName    string
 		dataName     string
 		dataSection  bool
-		data         []dataSymbol
+		data         []internal.DataSymbol
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -209,10 +162,10 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		if strings.HasPrefix(trimmed, ".section") {
 			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
 		}
-		if parsed, ok, err := parseDataDirective(line); err != nil {
+		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
 			return nil, nil, err
 		} else if ok && dataName != "" {
-			data = append(data, dataSymbol{Name: dataName, Data: parsed})
+			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 			dataName = ""
 		} else if attributeLine.MatchString(line) {
 			continue
@@ -326,7 +279,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
-	builder.WriteString(generateDataSymbols(dataSymbols))
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
 		returnSize := 0
 		if function.Type != "void" {

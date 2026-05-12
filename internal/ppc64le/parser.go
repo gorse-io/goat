@@ -15,11 +15,11 @@ package ppc64le
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/gorse-io/goat/internal"
@@ -45,56 +45,9 @@ var (
 
 	registers   = []string{"R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"}
 	fpRegisters = []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13"}
-	dataSymbols []dataSymbol
+	dataSymbols []internal.DataSymbol
 	dataAnchors = make(map[string]string)
 )
-
-type dataSymbol struct {
-	Name string
-	Data []byte
-}
-
-func generateDataSymbols(symbols []dataSymbol) string {
-	var builder strings.Builder
-	for _, symbol := range symbols {
-		for offset := 0; offset < len(symbol.Data); {
-			remaining := len(symbol.Data) - offset
-			size := 8
-			if remaining < size {
-				size = remaining
-			}
-			var value uint64
-			for i := 0; i < size; i++ {
-				value |= uint64(symbol.Data[offset+i]) << (8 * i)
-			}
-			builder.WriteString(fmt.Sprintf("DATA %s<>+0x%03x(SB)/%d, $0x%0*x\n", symbol.Name, offset, size, size*2, value))
-			offset += size
-		}
-		builder.WriteString(fmt.Sprintf("GLOBL %s<>(SB), 8, $%d\n\n", symbol.Name, len(symbol.Data)))
-	}
-	return builder.String()
-}
-
-func parseDataDirective(line string) ([]byte, bool, error) {
-	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, ".ascii") || strings.HasPrefix(line, ".asciz") {
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			return nil, false, fmt.Errorf("invalid ascii directive: %s", line)
-		}
-		value := strings.TrimSpace(strings.TrimPrefix(line, parts[0]))
-		decoded, err := strconv.Unquote(value)
-		if err != nil {
-			return nil, false, err
-		}
-		data := []byte(decoded)
-		if strings.HasPrefix(line, ".asciz") {
-			data = append(data, 0)
-		}
-		return data, true, nil
-	}
-	return nil, false, nil
-}
 
 const ppc64LinkageSize = 32
 
@@ -140,7 +93,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		dataName      string
 		dataSection   bool
 		pendingAnchor string
-		data          []dataSymbol
+		data          []internal.DataSymbol
 		anchors       = make(map[string]string)
 	)
 	scanner := bufio.NewScanner(file)
@@ -155,7 +108,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		}
 		switch {
 		case func() bool {
-			parsed, ok, err := parseDataDirective(line)
+			parsed, ok, err := internal.ParseDataDirective(line)
 			if err != nil {
 				return false
 			}
@@ -163,7 +116,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 				if len(data) > 0 && data[len(data)-1].Name == dataName {
 					data[len(data)-1].Data = append(data[len(data)-1].Data, parsed...)
 				} else {
-					data = append(data, dataSymbol{Name: dataName, Data: parsed})
+					data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 				}
 				return true
 			}
@@ -498,7 +451,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
-	builder.WriteString(generateDataSymbols(dataSymbols))
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
 		var body strings.Builder
 		var overflowParams []overflowParam
