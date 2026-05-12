@@ -15,6 +15,7 @@ package riscv64
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"regexp"
@@ -28,16 +29,62 @@ import (
 
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
+	nameLine      = regexp.MustCompile(`^\w+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	auipcLine  = regexp.MustCompile(`^auipc\s+([a-z0-9]+), %pcrel_hi\(([A-Za-z_][A-Za-z0-9_]*)\)$`)
+	pcrelLine  = regexp.MustCompile(`^addi\s+([a-z0-9]+), ([a-z0-9]+), %pcrel_lo\(.+\)$`)
 
 	registers   = []string{"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"}
 	fpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
+	dataSymbols []internal.DataSymbol
 )
+
+func riscv64Register(reg string) string {
+	switch reg {
+	case "zero":
+		return "ZERO"
+	case "ra":
+		return "RA"
+	case "sp":
+		return "SP"
+	case "gp":
+		return "GP"
+	case "tp":
+		return "TP"
+	case "t0":
+		return "T0"
+	case "t1":
+		return "T1"
+	case "t2":
+		return "T2"
+	case "s0", "fp":
+		return "S0"
+	case "s1":
+		return "S1"
+	case "a0":
+		return "A0"
+	case "a1":
+		return "A1"
+	case "a2":
+		return "A2"
+	case "a3":
+		return "A3"
+	case "a4":
+		return "A4"
+	case "a5":
+		return "A5"
+	case "a6":
+		return "A6"
+	case "a7":
+		return "A7"
+	default:
+		return strings.ToUpper(reg)
+	}
+}
 
 func init() {
 	var prologue strings.Builder
@@ -73,6 +120,10 @@ func generateLine(line internal.Line) string {
 		splits := strings.Split(line.Assembly, "\t")
 		label := splits[1][1:]
 		builder.WriteString(fmt.Sprintf("JMP %s\n", label))
+	} else if matches := auipcLine.FindStringSubmatch(line.Assembly); matches != nil {
+		builder.WriteString(fmt.Sprintf("MOV $%s<>(SB), %s", matches[2], riscv64Register(matches[1])))
+	} else if pcrelLine.MatchString(line.Assembly) {
+		// The preceding AUIPC is rewritten to load the full Go symbol address.
 	} else {
 		if len(line.Binary) == 8 {
 			builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
@@ -104,15 +155,35 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		functions    = make(map[string][]internal.Line)
 		functionName string
 		labelName    string
+		dataName     string
+		dataSection  bool
+		data         []internal.DataSymbol
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+		}
+		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
+			return nil, nil, err
+		} else if ok && dataName != "" {
+			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+			dataName = ""
+		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]internal.Line, 0)
+			name := strings.Split(line, ":")[0]
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if dataSection {
+				dataName = name
+			} else {
+				functionName = name
+				functions[functionName] = make([]internal.Line, 0)
+			}
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
@@ -140,6 +211,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 	if err = scanner.Err(); err != nil {
 		return nil, nil, err
 	}
+	dataSymbols = data
 	return functions, stackSizes, nil
 }
 
@@ -185,6 +257,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
 		returnSize := 0
 		if function.Type != "void" {

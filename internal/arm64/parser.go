@@ -15,6 +15,7 @@ package arm64
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"regexp"
@@ -28,16 +29,19 @@ import (
 
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
+	nameLine      = regexp.MustCompile(`^\w+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 	jmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	adrpLine   = regexp.MustCompile(`^adrp\s+x([0-9]+), ([A-Za-z_][A-Za-z0-9_]*)$`)
+	lo12Line   = regexp.MustCompile(`^add\s+x([0-9]+), x([0-9]+), :lo12:([A-Za-z_][A-Za-z0-9_]*)$`)
 
 	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
+	dataSymbols []internal.DataSymbol
 )
 
 func init() {
@@ -66,6 +70,10 @@ func generateLine(line internal.Line) string {
 		}, splits[0])
 		label := splits[1][1:]
 		builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
+	} else if matches := adrpLine.FindStringSubmatch(line.Assembly); matches != nil {
+		builder.WriteString(fmt.Sprintf("\tMOVD $%s<>(SB), R%s\n", matches[2], matches[1]))
+	} else if lo12Line.MatchString(line.Assembly) {
+		// The preceding ADRP is rewritten to load the full Go symbol address.
 	} else {
 		builder.WriteString("\t")
 		builder.WriteString(fmt.Sprintf("WORD $0x%v", line.Binary))
@@ -93,15 +101,35 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		functions    = make(map[string][]internal.Line)
 		functionName string
 		labelName    string
+		dataName     string
+		dataSection  bool
+		data         []internal.DataSymbol
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+		}
+		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
+			return nil, nil, err
+		} else if ok && dataName != "" {
+			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+			dataName = ""
+		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]internal.Line, 0)
+			name := strings.Split(line, ":")[0]
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if dataSection {
+				dataName = name
+			} else {
+				functionName = name
+				functions[functionName] = make([]internal.Line, 0)
+			}
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
@@ -129,6 +157,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 	if err = scanner.Err(); err != nil {
 		return nil, nil, err
 	}
+	dataSymbols = data
 	return functions, stackSizes, nil
 }
 
@@ -174,6 +203,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
 		returnSize := 0
 		if function.Type != "void" {

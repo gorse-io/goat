@@ -15,6 +15,7 @@ package amd64
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -29,16 +30,57 @@ import (
 
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
+	nameLine      = regexp.MustCompile(`^\w+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
-	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	symbolLine  = regexp.MustCompile(`^\w+\s+<\w+>:$`)
+	dataLine    = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	leaqRIPLine = regexp.MustCompile(`^leaq\s+([A-Za-z_][A-Za-z0-9_]*)\(%rip\), %([a-z0-9]+)$`)
 
 	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
 	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
+	dataSymbols  []internal.DataSymbol
 )
+
+func amd64Register(reg string) string {
+	switch strings.TrimPrefix(reg, "%") {
+	case "rax", "eax", "ax", "al":
+		return "AX"
+	case "rbx", "ebx", "bx", "bl":
+		return "BX"
+	case "rcx", "ecx", "cx", "cl":
+		return "CX"
+	case "rdx", "edx", "dx", "dl":
+		return "DX"
+	case "rsi", "esi", "si", "sil":
+		return "SI"
+	case "rdi", "edi", "di", "dil":
+		return "DI"
+	case "rbp", "ebp", "bp", "bpl":
+		return "BP"
+	case "rsp", "esp", "sp", "spl":
+		return "SP"
+	case "r8", "r8d", "r8w", "r8b":
+		return "R8"
+	case "r9", "r9d", "r9w", "r9b":
+		return "R9"
+	case "r10", "r10d", "r10w", "r10b":
+		return "R10"
+	case "r11", "r11d", "r11w", "r11b":
+		return "R11"
+	case "r12", "r12d", "r12w", "r12b":
+		return "R12"
+	case "r13", "r13d", "r13w", "r13b":
+		return "R13"
+	case "r14", "r14d", "r14w", "r14b":
+		return "R14"
+	case "r15", "r15d", "r15w", "r15b":
+		return "R15"
+	default:
+		return strings.ToUpper(strings.TrimPrefix(reg, "%"))
+	}
+}
 
 func init() {
 	internal.RegisterTarget("amd64", internal.Target{
@@ -60,6 +102,8 @@ func generateLine(line internal.Line) string {
 		op := strings.TrimSpace(splits[0])
 		operand := splits[1]
 		builder.WriteString(fmt.Sprintf("%s %s", strings.ToUpper(op), operand))
+	} else if matches := leaqRIPLine.FindStringSubmatch(line.Assembly); matches != nil {
+		builder.WriteString(fmt.Sprintf("LEAQ %s<>(SB), %s", matches[1], amd64Register(matches[2])))
 	} else {
 		pos := 0
 		for pos < len(line.Binary) {
@@ -107,16 +151,36 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		functions    = make(map[string][]internal.Line)
 		functionName string
 		labelName    string
+		dataName     string
+		dataSection  bool
+		data         []internal.DataSymbol
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if attributeLine.MatchString(line) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+		}
+		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
+			return nil, nil, err
+		} else if ok && dataName != "" {
+			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+			dataName = ""
+		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]internal.Line, 0)
-			labelName = ""
+			name := strings.Split(line, ":")[0]
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if dataSection {
+				dataName = name
+			} else {
+				functionName = name
+				functions[functionName] = make([]internal.Line, 0)
+				labelName = ""
+			}
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]
 			labelName = labelName[1:]
@@ -146,6 +210,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 	if err = scanner.Err(); err != nil {
 		return nil, nil, err
 	}
+	dataSymbols = data
 	return functions, stackSizes, nil
 }
 
@@ -214,6 +279,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
 		returnSize := 0
 		if function.Type != "void" {

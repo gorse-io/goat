@@ -15,6 +15,7 @@ package ppc64le
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -34,12 +35,18 @@ var (
 	stackMoveLine    = regexp.MustCompile(`^(std|ld|stw|lwz)\s+r(\d+),(-\d+)\(r1\)$`)
 	overflowLoadLine = regexp.MustCompile(`^ld\s+r(\d+),(\d+)\(r1\)$`)
 	registerLine     = regexp.MustCompile(`\br(\d+)\b`)
+	tocHighLine      = regexp.MustCompile(`^addis\s+r?(\d+),r?2,([.A-Za-z_][.A-Za-z0-9_]*)@toc@ha$`)
+	tocLowLine       = regexp.MustCompile(`^addi\s+r?(\d+),r?(\d+),([.A-Za-z_][.A-Za-z0-9_]*)@toc@l$`)
+	anchorSetLine    = regexp.MustCompile(`^\.set\s+(\.L[A-Za-z0-9_]+),\s*\.\s*\+\s*0$`)
+	numericLabelLine = regexp.MustCompile(`^\d+:\s+(.+)$`)
 
 	symbolLine = regexp.MustCompile(`^[0-9a-f]+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^[0-9a-f]+:\s+[0-9a-f]{2}(?:\s+[0-9a-f]{2}){3}.*$`)
 
 	registers   = []string{"R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"}
 	fpRegisters = []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13"}
+	dataSymbols []internal.DataSymbol
+	dataAnchors = make(map[string]string)
 )
 
 const ppc64LinkageSize = 32
@@ -79,21 +86,63 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 	}(file)
 
 	var (
-		stackSizes   = make(map[string]int)
-		functions    = make(map[string][]internal.Line)
-		functionName string
-		labelName    string
+		stackSizes    = make(map[string]int)
+		functions     = make(map[string][]internal.Line)
+		functionName  string
+		labelName     string
+		dataName      string
+		dataSection   bool
+		pendingAnchor string
+		data          []internal.DataSymbol
+		anchors       = make(map[string]string)
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if matches := numericLabelLine.FindStringSubmatch(strings.TrimSpace(line)); matches != nil {
+			line = "\t" + matches[1]
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+		}
 		switch {
+		case func() bool {
+			parsed, ok, err := internal.ParseDataDirective(line)
+			if err != nil {
+				return false
+			}
+			if ok && dataName != "" {
+				if len(data) > 0 && data[len(data)-1].Name == dataName {
+					data[len(data)-1].Data = append(data[len(data)-1].Data, parsed...)
+				} else {
+					data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+				}
+				return true
+			}
+			return false
+		}():
+			continue
+		case anchorSetLine.MatchString(trimmed):
+			pendingAnchor = anchorSetLine.FindStringSubmatch(trimmed)[1]
 		case attributeLine.MatchString(line):
 			continue
 		case nameLine.MatchString(line):
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]internal.Line, 0)
-			labelName = ""
+			name := strings.Split(line, ":")[0]
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if dataSection {
+				dataName = name
+				if pendingAnchor != "" {
+					anchors[strings.ToLower(pendingAnchor)] = name
+					pendingAnchor = ""
+				}
+			} else {
+				functionName = name
+				functions[functionName] = make([]internal.Line, 0)
+				labelName = ""
+			}
 		case labelLine.MatchString(line):
 			labelName = strings.TrimPrefix(strings.Split(line, ":")[0], ".")
 			lines := functions[functionName]
@@ -121,6 +170,8 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 	if err = scanner.Err(); err != nil {
 		return nil, nil, err
 	}
+	dataSymbols = data
+	dataAnchors = anchors
 	return functions, stackSizes, nil
 }
 
@@ -134,17 +185,16 @@ func sanitizeAsm(asm string) string {
 
 func parseObjectDump(dump string, functions map[string][]internal.Line) error {
 	var functionName string
+	instructionIndexes := make(map[string]int)
 	for i, line := range strings.Split(dump, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case symbolLine.MatchString(line):
 			functionName = strings.Split(line, "<")[1]
 			functionName = strings.Split(functionName, ">")[0]
-			if _, ok := functions[functionName]; ok {
-				functions[functionName] = make([]internal.Line, 0)
-			}
 		case dataLine.MatchString(line):
-			if _, ok := functions[functionName]; !ok {
+			lines, ok := functions[functionName]
+			if !ok {
 				continue
 			}
 			splits := strings.Fields(line)
@@ -163,10 +213,26 @@ func parseObjectDump(dump string, functions map[string][]internal.Line) error {
 			if assembly == "" {
 				continue
 			}
-			functions[functionName] = append(functions[functionName], internal.Line{
-				Assembly: assembly,
-				Binary:   binary.String(),
-			})
+			index := instructionIndexes[functionName]
+			for index < len(lines) && lines[index].Assembly == "" {
+				index++
+			}
+			if index < len(lines) {
+				lines[index].Binary = binary.String()
+				// Keep the compiler assembly text so relocatable references such as
+				// symbol@toc@ha/symbol@toc@l survive objdump, which prints them as 0.
+				if !strings.Contains(lines[index].Assembly, "@toc@") {
+					lines[index].Assembly = assembly
+				}
+				functions[functionName] = lines
+				instructionIndexes[functionName] = index + 1
+			} else {
+				functions[functionName] = append(functions[functionName], internal.Line{
+					Assembly: assembly,
+					Binary:   binary.String(),
+				})
+				instructionIndexes[functionName] = len(functions[functionName])
+			}
 		}
 	}
 	return nil
@@ -359,10 +425,33 @@ type overflowParam struct {
 	param  internal.Parameter
 }
 
+func tocSymbol(symbol string) string {
+	if mapped, ok := dataAnchors[symbol]; ok {
+		return mapped
+	}
+	return symbol
+}
+
+func rewriteTOCAddressLoad(lines []internal.Line, index int) (string, bool) {
+	if index+1 >= len(lines) {
+		return "", false
+	}
+	high := tocHighLine.FindStringSubmatch(strings.ToLower(strings.TrimSpace(lines[index].Assembly)))
+	low := tocLowLine.FindStringSubmatch(strings.ToLower(strings.TrimSpace(lines[index+1].Assembly)))
+	if len(high) != 3 || len(low) != 4 {
+		return "", false
+	}
+	if high[1] != low[1] || high[1] != low[2] || high[2] != low[3] {
+		return "", false
+	}
+	return fmt.Sprintf("\tMOVD $%s<>(SB), R%s\n", tocSymbol(high[2]), high[1]), true
+}
+
 func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []internal.Function) error {
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
 		var body strings.Builder
 		var overflowParams []overflowParam
@@ -418,8 +507,15 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			overflowOffsetMap[originalOffset] = overflow
 		}
 		builder.WriteString(fmt.Sprintf("\tMOVD $·%s(SB), R12\n", function.Name))
-		for _, line := range function.Lines {
-			if branch, ok := returnBranch(line.Assembly); ok {
+		for i := 0; i < len(function.Lines); i++ {
+			line := function.Lines[i]
+			if line.Assembly == "" {
+				continue
+			}
+			if rewritten, ok := rewriteTOCAddressLoad(function.Lines, i); ok {
+				builder.WriteString(rewritten)
+				i++
+			} else if branch, ok := returnBranch(line.Assembly); ok {
 				builder.WriteString(fmt.Sprintf("\t%s %s\n", branch, returnLabel))
 			} else if rewritten, ok := rewriteOverflowLoad(line, overflowOffsetMap, replacement, hasReplacement); ok {
 				builder.WriteString(rewritten)

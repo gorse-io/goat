@@ -73,3 +73,45 @@ void reverse(float *x1, float *x2, float *x3, float *x4, float *x5, float *x6, f
     tmp = *x4; *x4 = *x7; *x7 = tmp;
     tmp = *x5; *x5 = *x6; *x6 = tmp;
 }
+
+const char base64_encode_table[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+long base64_encode(const unsigned char *src, long n, char *dst)
+{
+    long i = 0;
+    long j = 0;
+
+    while (i + 2 < n)
+    {
+        unsigned int v = ((unsigned int)src[i] << 16) |
+                         ((unsigned int)src[i + 1] << 8) |
+                         (unsigned int)src[i + 2];
+        dst[j++] = base64_encode_table[(v >> 18) & 0x3f];
+        dst[j++] = base64_encode_table[(v >> 12) & 0x3f];
+        dst[j++] = base64_encode_table[(v >> 6) & 0x3f];
+        dst[j++] = base64_encode_table[v & 0x3f];
+        i += 3;
+    }
+
+    if (i < n)
+    {
+        unsigned int v = (unsigned int)src[i] << 16;
+        dst[j++] = base64_encode_table[(v >> 18) & 0x3f];
+
+        if (i + 1 < n)
+        {
+            v |= (unsigned int)src[i + 1] << 8;
+            dst[j++] = base64_encode_table[(v >> 12) & 0x3f];
+            dst[j++] = base64_encode_table[(v >> 6) & 0x3f];
+            dst[j++] = '=';
+        }
+        else
+        {
+            dst[j++] = base64_encode_table[(v >> 12) & 0x3f];
+            dst[j++] = '=';
+            dst[j++] = '=';
+        }
+    }
+
+    return j;
+}

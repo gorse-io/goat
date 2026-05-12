@@ -15,6 +15,7 @@ package s390x
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -32,15 +33,17 @@ const callerStackAreaSize = 160
 
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
-	nameLine      = regexp.MustCompile(`^\w+:.+$`)
+	nameLine      = regexp.MustCompile(`^\w+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	larlLine   = regexp.MustCompile(`^larl\s+%r([0-9]+), ([A-Za-z_][A-Za-z0-9_]*)$`)
 
 	registers   = []string{"R2", "R3", "R4", "R5", "R6"}
 	fpRegisters = []string{"F0", "F2", "F4", "F6"}
+	dataSymbols []internal.DataSymbol
 )
 
 func init() {
@@ -56,6 +59,10 @@ func init() {
 
 func generateLine(line internal.Line) string {
 	var builder strings.Builder
+	if matches := larlLine.FindStringSubmatch(line.Assembly); matches != nil {
+		builder.WriteString(fmt.Sprintf("\tMOVD $%s<>(SB), R%s\n", matches[2], matches[1]))
+		return builder.String()
+	}
 	builder.WriteString("\t")
 	for i := 0; i < len(line.Binary); i++ {
 		if i > 0 {
@@ -86,17 +93,45 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		functions    = make(map[string][]internal.Line)
 		functionName string
 		labelName    string
+		dataName     string
+		dataSection  bool
+		data         []internal.DataSymbol
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+		}
 		switch {
+		case func() bool {
+			parsed, ok, err := internal.ParseDataDirective(line)
+			if err != nil {
+				return false
+			}
+			if ok && dataName != "" {
+				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+				dataName = ""
+				return true
+			}
+			return false
+		}():
+			continue
 		case attributeLine.MatchString(line):
 			continue
 		case nameLine.MatchString(line):
-			functionName = strings.Split(line, ":")[0]
-			functions[functionName] = make([]internal.Line, 0)
-			labelName = ""
+			name := strings.Split(line, ":")[0]
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if dataSection {
+				dataName = name
+			} else {
+				functionName = name
+				functions[functionName] = make([]internal.Line, 0)
+				labelName = ""
+			}
 		case labelLine.MatchString(line):
 			labelName = strings.TrimPrefix(strings.Split(line, ":")[0], ".")
 			lines := functions[functionName]
@@ -134,6 +169,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 	if err = scanner.Err(); err != nil {
 		return nil, nil, err
 	}
+	dataSymbols = data
 	return functions, stackSizes, nil
 }
 
@@ -252,6 +288,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	var builder strings.Builder
 	builder.WriteString(buildTags)
 	builder.WriteString(header)
+	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.BigEndian))
 	for _, function := range functions {
 		var body strings.Builder
 		registerCount, fpRegisterCount, offset := 0, 0, 0
