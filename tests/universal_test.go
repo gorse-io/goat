@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/base64"
 	"testing"
 	"unsafe"
 
@@ -50,4 +51,26 @@ func TestReverse(t *testing.T) {
 	reverse(unsafe.Pointer(&a[0]), unsafe.Pointer(&a[1]), unsafe.Pointer(&a[2]), unsafe.Pointer(&a[3]), unsafe.Pointer(&a[4]),
 		unsafe.Pointer(&a[5]), unsafe.Pointer(&a[6]), unsafe.Pointer(&a[7]), unsafe.Pointer(&a[8]), unsafe.Pointer(&a[9]))
 	assert.Equal(t, []float32{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, a)
+}
+
+func TestBase64Encode(t *testing.T) {
+	ptr := func(b []byte) unsafe.Pointer {
+		if len(b) == 0 {
+			return nil
+		}
+		return unsafe.Pointer(&b[0])
+	}
+
+	for _, input := range [][]byte{
+		{},
+		[]byte("f"),
+		[]byte("fo"),
+		[]byte("foo"),
+		[]byte("hello, goat"),
+	} {
+		dst := make([]byte, base64.StdEncoding.EncodedLen(len(input)))
+		n := base64_encode(ptr(input), int64(len(input)), ptr(dst))
+		assert.Equal(t, int64(len(dst)), n)
+		assert.Equal(t, base64.StdEncoding.EncodeToString(input), string(dst))
+	}
 }
