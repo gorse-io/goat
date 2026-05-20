@@ -173,7 +173,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
-			name := strings.Split(line, ":")[0]
+			name, _, _ := strings.Cut(line, ":")
 			if strings.HasPrefix(name, ".") {
 				continue
 			}
@@ -193,7 +193,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 				lines[len(lines)-1].Labels = append(lines[len(lines)-1].Labels, labelName)
 			}
 		} else if codeLine.MatchString(line) {
-			asm := strings.Split(line, "//")[0]
+			asm, _, _ := strings.Cut(line, "//")
 			asm = strings.TrimSpace(asm)
 			if labelName == "" {
 				functions[functionName] = append(functions[functionName], internal.Line{Assembly: asm})

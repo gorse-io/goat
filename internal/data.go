@@ -56,10 +56,7 @@ func GenerateDataSymbols(symbols []DataSymbol, byteOrder binary.ByteOrder) strin
 	for _, symbol := range symbols {
 		for offset := 0; offset < len(symbol.Data); {
 			remaining := len(symbol.Data) - offset
-			size := 8
-			if remaining < size {
-				size = remaining
-			}
+			size := min(remaining, 8)
 			var value uint64
 			for i := 0; i < size; i++ {
 				if byteOrder == binary.BigEndian {

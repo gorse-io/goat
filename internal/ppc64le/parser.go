@@ -128,7 +128,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		case attributeLine.MatchString(line):
 			continue
 		case nameLine.MatchString(line):
-			name := strings.Split(line, ":")[0]
+			name, _, _ := strings.Cut(line, ":")
 			if strings.HasPrefix(name, ".") {
 				continue
 			}

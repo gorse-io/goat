@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -170,7 +171,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
-			name := strings.Split(line, ":")[0]
+			name, _, _ := strings.Cut(line, ":")
 			if strings.HasPrefix(name, ".") {
 				continue
 			}
@@ -324,8 +325,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			offset += 8 - offset%8
 		}
 		if len(stack) > 0 {
-			for i := len(stack) - 1; i >= 0; i-- {
-				builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", stack[i].B.Name, stack[i].A))
+			for _, s := range slices.Backward(stack) {
+				builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", s.B.Name, s.A))
 			}
 			builder.WriteString("\tPUSHQ $0\n")
 		}
