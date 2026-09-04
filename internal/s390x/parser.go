@@ -103,6 +103,8 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".section") {
 			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+		} else if trimmed == ".text" {
+			dataSection = false
 		}
 		switch {
 		case func() bool {

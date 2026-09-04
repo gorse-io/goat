@@ -6,6 +6,13 @@
 #include <vecintrin.h>
 #endif
 
+__asm__(
+    ".section .rodata\n"
+    ".p2align 3\n"
+    "section_constant:\n"
+    ".quad 1\n"
+    ".text\n");
+
 long add(long a, long b)
 {
     return a + b;
