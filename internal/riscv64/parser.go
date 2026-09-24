@@ -30,18 +30,23 @@ import (
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
 	nameLine      = regexp.MustCompile(`^\w+:.*$`)
+	dataNameLine  = regexp.MustCompile(`^[.\w$]+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
-	auipcLine  = regexp.MustCompile(`^auipc\s+([a-z0-9]+), %pcrel_hi\(([A-Za-z_][A-Za-z0-9_]*)\)$`)
+	auipcLine  = regexp.MustCompile(`^auipc\s+([a-z0-9]+), %pcrel_hi\(([.A-Za-z_][.A-Za-z0-9_$]*)\)$`)
 	pcrelLine  = regexp.MustCompile(`^addi\s+([a-z0-9]+), ([a-z0-9]+), %pcrel_lo\(.+\)$`)
 
 	registers   = []string{"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"}
 	fpRegisters = []string{"FA0", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6", "FA7"}
 	dataSymbols []internal.DataSymbol
 )
+
+func dataSymbolName(name string) string {
+	return internal.GoDataSymbolName(name)
+}
 
 func riscv64Register(reg string) string {
 	switch reg {
@@ -121,7 +126,7 @@ func generateLine(line internal.Line) string {
 		label := splits[1][1:]
 		builder.WriteString(fmt.Sprintf("JMP %s\n", label))
 	} else if matches := auipcLine.FindStringSubmatch(line.Assembly); matches != nil {
-		builder.WriteString(fmt.Sprintf("MOV $%s<>(SB), %s", matches[2], riscv64Register(matches[1])))
+		builder.WriteString(fmt.Sprintf("MOV $%s<>(SB), %s", dataSymbolName(matches[2]), riscv64Register(matches[1])))
 	} else if pcrelLine.MatchString(line.Assembly) {
 		// The preceding AUIPC is rewritten to load the full Go symbol address.
 	} else {
@@ -164,15 +169,27 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".section") {
-			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+			if !dataSection {
+				dataName = ""
+			}
 		} else if trimmed == ".text" {
 			dataSection = false
+			dataName = ""
 		}
-		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
+		if dataSection && dataNameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			dataName = dataSymbolName(name)
+			continue
+		}
+		if parsed, ok, err := internal.ParseDataDirective(line, binary.LittleEndian); err != nil {
 			return nil, nil, err
 		} else if ok && dataName != "" {
-			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
-			dataName = ""
+			if len(data) > 0 && data[len(data)-1].Name == dataName {
+				data[len(data)-1].Data = append(data[len(data)-1].Data, parsed...)
+			} else {
+				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+			}
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
@@ -185,6 +202,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 			} else {
 				functionName = name
 				functions[functionName] = make([]internal.Line, 0)
+				labelName = ""
 			}
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]

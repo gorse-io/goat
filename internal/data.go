@@ -15,6 +15,7 @@ package internal
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,10 +28,72 @@ type DataSymbol struct {
 	Data []byte
 }
 
+const escapedDataSymbolPrefix = "__goat_data_"
+
+// GoDataSymbolName converts an assembler data symbol into a valid, unique Go
+// assembler symbol while preserving ordinary C identifiers for readability.
+func GoDataSymbolName(name string) string {
+	if !strings.ContainsAny(name, ".$") && !strings.HasPrefix(name, escapedDataSymbolPrefix) {
+		return name
+	}
+	return escapedDataSymbolPrefix + hex.EncodeToString([]byte(name))
+}
+
 // ParseDataDirective parses data directives that embed literal bytes in clang
 // assembly output.
-func ParseDataDirective(line string) ([]byte, bool, error) {
+func ParseDataDirective(line string, byteOrder binary.ByteOrder) ([]byte, bool, error) {
 	line = strings.TrimSpace(line)
+	fields := strings.Fields(line)
+	if len(fields) > 0 {
+		var size int
+		switch fields[0] {
+		case ".byte":
+			size = 1
+		case ".short":
+			size = 2
+		case ".long":
+			size = 4
+		case ".quad", ".xword", ".dword":
+			size = 8
+		}
+		if size > 0 {
+			values := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+			values, _, _ = strings.Cut(values, "#")
+			values, _, _ = strings.Cut(values, "//")
+			if values == "" {
+				return nil, false, fmt.Errorf("invalid %s directive: %s", fields[0], line)
+			}
+			var data []byte
+			for _, value := range strings.Split(values, ",") {
+				value = strings.TrimSpace(value)
+				var parsed uint64
+				var err error
+				if strings.HasPrefix(value, "-") {
+					var signed int64
+					signed, err = strconv.ParseInt(value, 0, size*8)
+					parsed = uint64(signed)
+				} else {
+					parsed, err = strconv.ParseUint(value, 0, size*8)
+				}
+				if err != nil {
+					return nil, false, nil
+				}
+				encoded := make([]byte, size)
+				switch size {
+				case 1:
+					encoded[0] = byte(parsed)
+				case 2:
+					byteOrder.PutUint16(encoded, uint16(parsed))
+				case 4:
+					byteOrder.PutUint32(encoded, uint32(parsed))
+				case 8:
+					byteOrder.PutUint64(encoded, parsed)
+				}
+				data = append(data, encoded...)
+			}
+			return data, true, nil
+		}
+	}
 	if strings.HasPrefix(line, ".ascii") || strings.HasPrefix(line, ".asciz") {
 		parts := strings.Fields(line)
 		if len(parts) < 2 {
