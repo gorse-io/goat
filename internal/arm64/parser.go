@@ -30,19 +30,24 @@ import (
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
 	nameLine      = regexp.MustCompile(`^\w+:.*$`)
+	dataNameLine  = regexp.MustCompile(`^[.\w$]+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 	jmpLine       = regexp.MustCompile(`^(b|b\.\w{2})\t\.\w+_\d+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
-	adrpLine   = regexp.MustCompile(`^adrp\s+x([0-9]+), ([A-Za-z_][A-Za-z0-9_]*)$`)
-	lo12Line   = regexp.MustCompile(`^add\s+x([0-9]+), x([0-9]+), :lo12:([A-Za-z_][A-Za-z0-9_]*)$`)
+	adrpLine   = regexp.MustCompile(`^adrp\s+x([0-9]+), ([.A-Za-z_][.A-Za-z0-9_$]*)$`)
+	lo12Line   = regexp.MustCompile(`^add\s+x([0-9]+), x([0-9]+), :lo12:([.A-Za-z_][.A-Za-z0-9_$]*)$`)
 
 	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
 	dataSymbols []internal.DataSymbol
 )
+
+func dataSymbolName(name string) string {
+	return internal.GoDataSymbolName(name)
+}
 
 func init() {
 	internal.RegisterTarget("arm64", internal.Target{
@@ -71,7 +76,7 @@ func generateLine(line internal.Line) string {
 		label := splits[1][1:]
 		builder.WriteString(fmt.Sprintf("%s %s\n", instruction, label))
 	} else if matches := adrpLine.FindStringSubmatch(line.Assembly); matches != nil {
-		builder.WriteString(fmt.Sprintf("\tMOVD $%s<>(SB), R%s\n", matches[2], matches[1]))
+		builder.WriteString(fmt.Sprintf("	MOVD $%s<>(SB), R%s\n", dataSymbolName(matches[2]), matches[1]))
 	} else if lo12Line.MatchString(line.Assembly) {
 		// The preceding ADRP is rewritten to load the full Go symbol address.
 	} else {
@@ -110,15 +115,27 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".section") {
-			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+			if !dataSection {
+				dataName = ""
+			}
 		} else if trimmed == ".text" {
 			dataSection = false
+			dataName = ""
 		}
-		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
+		if dataSection && dataNameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			dataName = dataSymbolName(name)
+			continue
+		}
+		if parsed, ok, err := internal.ParseDataDirective(line, binary.LittleEndian); err != nil {
 			return nil, nil, err
 		} else if ok && dataName != "" {
-			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
-			dataName = ""
+			if len(data) > 0 && data[len(data)-1].Name == dataName {
+				data[len(data)-1].Data = append(data[len(data)-1].Data, parsed...)
+			} else {
+				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+			}
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
@@ -131,6 +148,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 			} else {
 				functionName = name
 				functions[functionName] = make([]internal.Line, 0)
+				labelName = ""
 			}
 		} else if labelLine.MatchString(line) {
 			labelName = strings.Split(line, ":")[0]

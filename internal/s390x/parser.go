@@ -34,17 +34,22 @@ const callerStackAreaSize = 160
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
 	nameLine      = regexp.MustCompile(`^\w+:.*$`)
+	dataNameLine  = regexp.MustCompile(`^[.\w$]+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
-	larlLine   = regexp.MustCompile(`^larl\s+%r([0-9]+), ([A-Za-z_][A-Za-z0-9_]*)$`)
+	larlLine   = regexp.MustCompile(`^larl\s+%r([0-9]+), ([.A-Za-z_][.A-Za-z0-9_$]*)$`)
 
 	registers   = []string{"R2", "R3", "R4", "R5", "R6"}
 	fpRegisters = []string{"F0", "F2", "F4", "F6"}
 	dataSymbols []internal.DataSymbol
 )
+
+func dataSymbolName(name string) string {
+	return internal.GoDataSymbolName(name)
+}
 
 func init() {
 	internal.RegisterTarget("s390x", internal.Target{
@@ -60,7 +65,7 @@ func init() {
 func generateLine(line internal.Line) string {
 	var builder strings.Builder
 	if matches := larlLine.FindStringSubmatch(line.Assembly); matches != nil {
-		builder.WriteString(fmt.Sprintf("\tMOVD $%s<>(SB), R%s\n", matches[2], matches[1]))
+		builder.WriteString(fmt.Sprintf("	MOVD $%s<>(SB), R%s\n", dataSymbolName(matches[2]), matches[1]))
 		return builder.String()
 	}
 	builder.WriteString("\t")
@@ -102,19 +107,31 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".section") {
-			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+			if !dataSection {
+				dataName = ""
+			}
 		} else if trimmed == ".text" {
 			dataSection = false
+			dataName = ""
+		}
+		if dataSection && dataNameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			dataName = dataSymbolName(name)
+			continue
 		}
 		switch {
 		case func() bool {
-			parsed, ok, err := internal.ParseDataDirective(line)
+			parsed, ok, err := internal.ParseDataDirective(line, binary.BigEndian)
 			if err != nil {
 				return false
 			}
 			if ok && dataName != "" {
-				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
-				dataName = ""
+				if len(data) > 0 && data[len(data)-1].Name == dataName {
+					data[len(data)-1].Data = append(data[len(data)-1].Data, parsed...)
+				} else {
+					data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+				}
 				return true
 			}
 			return false

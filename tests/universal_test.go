@@ -16,6 +16,12 @@ func TestAdd(t *testing.T) {
 	assert.Equal(t, a+b, c)
 }
 
+func TestLoadConstantPool(t *testing.T) {
+	output := make([]int64, 4)
+	load_constant_pool(unsafe.Pointer(&output[0]))
+	assert.Equal(t, []int64{3, 4, 5, 6}, output)
+}
+
 func TestL2(t *testing.T) {
 	a := []float32{1, 2, 3, 4}
 	b := []float32{5, 6, 7, 8}

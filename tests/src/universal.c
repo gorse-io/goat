@@ -18,6 +18,25 @@ long add(long a, long b)
     return a + b;
 }
 
+void load_constant_pool(long long *output)
+{
+#if defined(__powerpc64__)
+    static const double values[4] __attribute__((section(".rodata.cst32"), aligned(32))) = {
+#else
+    static const double values[4] __attribute__((aligned(32))) = {
+#endif
+        3.141592653589793,
+        4.141592653589793,
+        5.141592653589793,
+        6.141592653589793,
+    };
+    const volatile double *p = values;
+    output[0] = (long long)p[0];
+    output[1] = (long long)p[1];
+    output[2] = (long long)p[2];
+    output[3] = (long long)p[3];
+}
+
 float l2(const float *a, const float *b, long n)
 {
     float sum = 0;

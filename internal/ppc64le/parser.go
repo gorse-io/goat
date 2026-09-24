@@ -29,14 +29,15 @@ import (
 var (
 	attributeLine    = regexp.MustCompile(`^\s+\..+$`)
 	nameLine         = regexp.MustCompile(`^\w+:.*$`)
+	dataNameLine     = regexp.MustCompile(`^[.\w$]+:.*$`)
 	labelLine        = regexp.MustCompile(`^\.L[\w$]*:.*$`)
 	codeLine         = regexp.MustCompile(`^\s+\w+.+$`)
 	stackRefLine     = regexp.MustCompile(`-(\d+)\(([rR]?1)\)`)
 	stackMoveLine    = regexp.MustCompile(`^(std|ld|stw|lwz)\s+r(\d+),(-\d+)\(r1\)$`)
 	overflowLoadLine = regexp.MustCompile(`^ld\s+r(\d+),(\d+)\(r1\)$`)
 	registerLine     = regexp.MustCompile(`\br(\d+)\b`)
-	tocHighLine      = regexp.MustCompile(`^addis\s+r?(\d+),r?2,([.A-Za-z_][.A-Za-z0-9_]*)@toc@ha$`)
-	tocLowLine       = regexp.MustCompile(`^addi\s+r?(\d+),r?(\d+),([.A-Za-z_][.A-Za-z0-9_]*)@toc@l$`)
+	tocHighLine      = regexp.MustCompile(`^addis\s+r?(\d+),r?2,([.A-Za-z_][.A-Za-z0-9_]*)([+-]\d+)?@toc@ha$`)
+	tocLowLine       = regexp.MustCompile(`^addi\s+r?(\d+),r?(\d+),([.A-Za-z_][.A-Za-z0-9_]*)([+-]\d+)?@toc@l$`)
 	anchorSetLine    = regexp.MustCompile(`^\.set\s+(\.L[A-Za-z0-9_]+),\s*\.\s*\+\s*0$`)
 	numericLabelLine = regexp.MustCompile(`^\d+:\s+(.+)$`)
 
@@ -48,6 +49,10 @@ var (
 	dataSymbols []internal.DataSymbol
 	dataAnchors = make(map[string]string)
 )
+
+func dataSymbolName(name string) string {
+	return internal.GoDataSymbolName(name)
+}
 
 const ppc64LinkageSize = 32
 
@@ -104,13 +109,26 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		}
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".section") {
-			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+			if !dataSection {
+				dataName = ""
+			}
 		} else if trimmed == ".text" {
 			dataSection = false
+			dataName = ""
+		}
+		if dataSection && dataNameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			dataName = dataSymbolName(name)
+			if pendingAnchor != "" {
+				anchors[strings.ToLower(pendingAnchor)] = name
+				pendingAnchor = ""
+			}
+			continue
 		}
 		switch {
 		case func() bool {
-			parsed, ok, err := internal.ParseDataDirective(line)
+			parsed, ok, err := internal.ParseDataDirective(line, binary.LittleEndian)
 			if err != nil {
 				return false
 			}
@@ -427,26 +445,25 @@ type overflowParam struct {
 	param  internal.Parameter
 }
 
-func tocSymbol(symbol string) string {
-	if mapped, ok := dataAnchors[symbol]; ok {
-		return mapped
+func tocAddress(symbol, offset string) string {
+	if mapped, ok := dataAnchors[strings.ToLower(symbol)]; ok {
+		symbol = mapped
 	}
-	return symbol
+	return fmt.Sprintf("%s<>%s(SB)", dataSymbolName(symbol), offset)
 }
 
-func rewriteTOCAddressLoad(lines []internal.Line, index int) (string, bool) {
-	if index+1 >= len(lines) {
-		return "", false
+func rewriteTOCAddressLoad(lines []internal.Line, index int) (string, int, bool) {
+	high := tocHighLine.FindStringSubmatch(strings.TrimSpace(lines[index].Assembly))
+	if len(high) != 4 {
+		return "", 0, false
 	}
-	high := tocHighLine.FindStringSubmatch(strings.ToLower(strings.TrimSpace(lines[index].Assembly)))
-	low := tocLowLine.FindStringSubmatch(strings.ToLower(strings.TrimSpace(lines[index+1].Assembly)))
-	if len(high) != 3 || len(low) != 4 {
-		return "", false
+	if index+1 < len(lines) {
+		low := tocLowLine.FindStringSubmatch(strings.TrimSpace(lines[index+1].Assembly))
+		if len(low) == 5 && high[1] == low[1] && high[1] == low[2] && high[2] == low[3] && high[3] == low[4] {
+			return fmt.Sprintf("	MOVD $%s, R%s\n", tocAddress(high[2], high[3]), high[1]), 1, true
+		}
 	}
-	if high[1] != low[1] || high[1] != low[2] || high[2] != low[3] {
-		return "", false
-	}
-	return fmt.Sprintf("\tMOVD $%s<>(SB), R%s\n", tocSymbol(high[2]), high[1]), true
+	return fmt.Sprintf("	MOVD $%s, R%s\n", tocAddress(high[2], high[3]), high[1]), 0, true
 }
 
 func generateGoAssembly(buildTags string, header string, goAssemblyPath string, functions []internal.Function) error {
@@ -514,9 +531,9 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			if line.Assembly == "" {
 				continue
 			}
-			if rewritten, ok := rewriteTOCAddressLoad(function.Lines, i); ok {
+			if rewritten, skip, ok := rewriteTOCAddressLoad(function.Lines, i); ok {
 				builder.WriteString(rewritten)
-				i++
+				i += skip
 			} else if branch, ok := returnBranch(line.Assembly); ok {
 				builder.WriteString(fmt.Sprintf("\t%s %s\n", branch, returnLabel))
 			} else if rewritten, ok := rewriteOverflowLoad(line, overflowOffsetMap, replacement, hasReplacement); ok {

@@ -32,12 +32,14 @@ import (
 var (
 	attributeLine = regexp.MustCompile(`^\s+\..+$`)
 	nameLine      = regexp.MustCompile(`^\w+:.*$`)
+	dataNameLine  = regexp.MustCompile(`^[.\w$]+:.*$`)
 	labelLine     = regexp.MustCompile(`^\.\w+_\d+:.*$`)
 	codeLine      = regexp.MustCompile(`^\s+\w+.+$`)
 
-	symbolLine  = regexp.MustCompile(`^\w+\s+<\w+>:$`)
-	dataLine    = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
-	leaqRIPLine = regexp.MustCompile(`^leaq\s+([A-Za-z_][A-Za-z0-9_]*)\(%rip\), %([a-z0-9]+)$`)
+	symbolLine              = regexp.MustCompile(`^\w+\s+<\w+>:$`)
+	dataLine                = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
+	leaqRIPLine             = regexp.MustCompile(`^leaq\s+([.A-Za-z_$][A-Za-z0-9_.$]*)\(%rip\), %([a-z0-9]+)(?:\s+#.*)?$`)
+	ripRelativeDataLoadLine = regexp.MustCompile(`^([a-z0-9]+)\s+(\.[A-Za-z0-9_.$]+)\(%rip\), %([a-z0-9]+)(?:\s+#.*)?$`)
 
 	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
 	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
@@ -45,7 +47,17 @@ var (
 )
 
 func amd64Register(reg string) string {
-	switch strings.TrimPrefix(reg, "%") {
+	reg = strings.TrimPrefix(reg, "%")
+	if strings.HasPrefix(reg, "xmm") {
+		return "X" + strings.TrimPrefix(reg, "xmm")
+	}
+	if strings.HasPrefix(reg, "ymm") {
+		return "Y" + strings.TrimPrefix(reg, "ymm")
+	}
+	if strings.HasPrefix(reg, "zmm") {
+		return "Z" + strings.TrimPrefix(reg, "zmm")
+	}
+	switch reg {
 	case "rax", "eax", "ax", "al":
 		return "AX"
 	case "rbx", "ebx", "bx", "bl":
@@ -79,8 +91,12 @@ func amd64Register(reg string) string {
 	case "r15", "r15d", "r15w", "r15b":
 		return "R15"
 	default:
-		return strings.ToUpper(strings.TrimPrefix(reg, "%"))
+		return strings.ToUpper(reg)
 	}
+}
+
+func dataSymbolName(name string) string {
+	return internal.GoDataSymbolName(name)
 }
 
 func init() {
@@ -104,7 +120,10 @@ func generateLine(line internal.Line) string {
 		operand := splits[1]
 		builder.WriteString(fmt.Sprintf("%s %s", strings.ToUpper(op), operand))
 	} else if matches := leaqRIPLine.FindStringSubmatch(line.Assembly); matches != nil {
-		builder.WriteString(fmt.Sprintf("LEAQ %s<>(SB), %s", matches[1], amd64Register(matches[2])))
+		builder.WriteString(fmt.Sprintf("LEAQ %s<>(SB), %s", dataSymbolName(matches[1]), amd64Register(matches[2])))
+	} else if matches := ripRelativeDataLoadLine.FindStringSubmatch(line.Assembly); matches != nil {
+		builder.WriteString(fmt.Sprintf("%s %s<>(SB), %s",
+			strings.ToUpper(matches[1]), dataSymbolName(matches[2]), amd64Register(matches[3])))
 	} else {
 		pos := 0
 		for pos < len(line.Binary) {
@@ -161,15 +180,27 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".section") {
-			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data")
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".rdata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+			if !dataSection {
+				dataName = ""
+			}
 		} else if trimmed == ".text" {
 			dataSection = false
+			dataName = ""
 		}
-		if parsed, ok, err := internal.ParseDataDirective(line); err != nil {
+		if dataSection && dataNameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			dataName = dataSymbolName(name)
+			continue
+		}
+		if parsed, ok, err := internal.ParseDataDirective(line, binary.LittleEndian); err != nil {
 			return nil, nil, err
 		} else if ok && dataName != "" {
-			data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
-			dataName = ""
+			if len(data) > 0 && data[len(data)-1].Name == dataName {
+				data[len(data)-1].Data = append(data[len(data)-1].Data, parsed...)
+			} else {
+				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
+			}
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
