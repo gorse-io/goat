@@ -22,6 +22,12 @@ func TestLoadConstantPool(t *testing.T) {
 	assert.Equal(t, []int64{3, 4, 5, 6}, output)
 }
 
+func TestLoadZeroConstantPool(t *testing.T) {
+	output := make([]int64, 3)
+	load_zero_constant_pool(unsafe.Pointer(&output[0]))
+	assert.Equal(t, []int64{0, 15, 16}, output)
+}
+
 func TestL2(t *testing.T) {
 	a := []float32{1, 2, 3, 4}
 	b := []float32{5, 6, 7, 8}

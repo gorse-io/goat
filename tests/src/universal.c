@@ -37,6 +37,36 @@ void load_constant_pool(long long *output)
     output[3] = (long long)p[3];
 }
 
+void load_zero_constant_pool(long long *output)
+{
+#if defined(__powerpc64__)
+    /* Keep each value in a separate section so GCC emits independent TOC references. */
+    static const unsigned char zeros_data[8]
+        __attribute__((section(".rodata.goat_zero"), aligned(8))) = {0};
+    static const unsigned char fills_data[8]
+        __attribute__((section(".rodata.goat_fill"), aligned(8))) = {
+            15, 15, 15, 15, 15, 15, 15, 15,
+        };
+    static const long long marker
+        __attribute__((section(".rodata.goat_value"), aligned(8))) = 16;
+    const volatile unsigned char *zeros = zeros_data;
+    const volatile unsigned char *fills = fills_data;
+    const volatile long long *value = &marker;
+#else
+    static const struct __attribute__((aligned(16))) {
+        unsigned char zeros[8];
+        unsigned char fills[8];
+        long long value;
+    } values = {{0}, {15, 15, 15, 15, 15, 15, 15, 15}, 16};
+    const volatile unsigned char *zeros = values.zeros;
+    const volatile unsigned char *fills = values.fills;
+    const volatile long long *value = &values.value;
+#endif
+    output[0] = zeros[0];
+    output[1] = fills[0];
+    output[2] = *value;
+}
+
 float l2(const float *a, const float *b, long n)
 {
     float sum = 0;
