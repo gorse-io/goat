@@ -14,6 +14,8 @@
 package internal
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -39,12 +41,46 @@ func GoDataSymbolName(name string) string {
 	return escapedDataSymbolPrefix + hex.EncodeToString([]byte(name))
 }
 
-// ParseDataDirective parses data directives that embed literal bytes in clang
-// assembly output.
+// ParseDataDirective parses data directives that embed literal bytes in
+// compiler-generated assembly output.
 func ParseDataDirective(line string, byteOrder binary.ByteOrder) ([]byte, bool, error) {
 	line = strings.TrimSpace(line)
 	fields := strings.Fields(line)
 	if len(fields) > 0 {
+		if fields[0] == ".zero" || fields[0] == ".space" {
+			directive := fields[0]
+			values := strings.TrimSpace(strings.TrimPrefix(line, directive))
+			values, _, _ = strings.Cut(values, "#")
+			values, _, _ = strings.Cut(values, "//")
+			parts := strings.Split(values, ",")
+			if len(parts) > 2 {
+				return nil, false, fmt.Errorf("invalid %s directive: %s", directive, line)
+			}
+			count, err := strconv.ParseUint(strings.TrimSpace(parts[0]), 0, strconv.IntSize)
+			if err != nil {
+				return nil, false, fmt.Errorf("invalid %s directive: %s", directive, line)
+			}
+			var fill uint64
+			if len(parts) == 2 {
+				fill, err = strconv.ParseUint(strings.TrimSpace(parts[1]), 0, 8)
+				if err != nil {
+					return nil, false, fmt.Errorf("invalid %s directive: %s", directive, line)
+				}
+			}
+			return bytes.Repeat([]byte{byte(fill)}, int(count)), true, nil
+		}
+		if fields[0] == ".base64" {
+			value := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+			value, err := strconv.Unquote(value)
+			if err != nil {
+				return nil, false, fmt.Errorf("invalid .base64 directive: %s", line)
+			}
+			data, err := base64.StdEncoding.DecodeString(value)
+			if err != nil {
+				return nil, false, fmt.Errorf("invalid .base64 directive: %s", line)
+			}
+			return data, true, nil
+		}
 		var size int
 		switch fields[0] {
 		case ".byte":
@@ -119,7 +155,17 @@ func GenerateDataSymbols(symbols []DataSymbol, byteOrder binary.ByteOrder) strin
 	for _, symbol := range symbols {
 		for offset := 0; offset < len(symbol.Data); {
 			remaining := len(symbol.Data) - offset
-			size := min(remaining, 8)
+			var size int
+			switch {
+			case remaining >= 8:
+				size = 8
+			case remaining >= 4:
+				size = 4
+			case remaining >= 2:
+				size = 2
+			default:
+				size = 1
+			}
 			var value uint64
 			for i := 0; i < size; i++ {
 				if byteOrder == binary.BigEndian {
