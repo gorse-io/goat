@@ -174,6 +174,28 @@ func Add(a, b, c []float32) {
 }
 ```
 
+## Development container
+
+Open this repository in VS Code and run **Dev Containers: Reopen in Container**
+(with Docker and the Dev Containers extension installed), or open it in GitHub
+Codespaces. The container includes Go 1.27, Clang, GNU binutils, and the native
+build dependencies for AMD64 and ARM64. On creation, it installs `goat` from the
+checkout and downloads the test module dependencies.
+
+Generate assembly before running the tests, as in CI:
+
+```bash
+go install .
+goat tests/src/universal.c -o tests
+goat tests/src/o3.c -o tests -O3
+go vet -C tests ./...
+go test -C tests -v
+```
+
+On AMD64 hosts with AVX support, add `-mavx` to the optimized generation command
+to match the AMD64 CI job. Re-run `go install .` after changing the transpiler.
+Cross-architecture toolchains and QEMU are not included.
+
 ## Limitations
 
 - No call statements except for inline functions.
