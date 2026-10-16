@@ -13,6 +13,3 @@ RUN apt-get update \
         apt-get install -y --no-install-recommends libc6-dev-i386; \
     fi \
     && rm -rf /var/lib/apt/lists/*
-
-# GoAT uses the Clang triple when locating the cross-architecture objdump.
-RUN ln -s /usr/bin/x86_64-linux-gnu-objdump /usr/local/bin/amd64-linux-gnu-objdump
