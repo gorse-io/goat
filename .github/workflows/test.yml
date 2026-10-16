@@ -117,13 +117,11 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang lld binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+          apt: qemu-user-static clang binutils-riscv64-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate RISC-V assembly with GOAT
         env:
-          CC: riscv64-linux-gnu-gcc
-          CXX: riscv64-linux-gnu-g++
           OBJDUMP: /usr/bin/riscv64-linux-gnu-objdump
           CLANG: /usr/bin/clang
         run: |
