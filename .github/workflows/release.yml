@@ -1,0 +1,27 @@
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  homebrew:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v4.2
+        with:
+          formula-name: goat
+          tag-name: ${{ github.event.release.tag_name }}
+          homebrew-tap: gorse-io/homebrew-tap
+          push-to: gorse-io/homebrew-tap
+          create-branch: true
+          create-pullrequest: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Token with Contents and Pull requests write access to gorse-io/homebrew-tap.
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
