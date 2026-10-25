@@ -17,7 +17,7 @@ jobs:
           GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
         run: |
           gh api --method POST repos/gorse-io/scoop-bucket/dispatches \
-            -f event_type=goat-release
+            -f event_type=release
   homebrew:
     if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
