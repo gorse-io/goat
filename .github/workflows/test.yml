@@ -117,7 +117,7 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang binutils-riscv64-linux-gnu
+          apt: qemu-user clang binutils-riscv64-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate RISC-V assembly with GOAT
@@ -134,7 +134,7 @@ jobs:
           GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go vet -C ./tests ./...
           cd tests
           GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go test -c -o tests.test
-          qemu-riscv64-static ./tests.test -test.v
+          qemu-riscv64 ./tests.test -test.v
 
   loong64:
     name: qemu-loong64
@@ -150,7 +150,7 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang binutils-loongarch64-linux-gnu
+          apt: qemu-user clang binutils-loongarch64-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate LoongArch assembly with GOAT
@@ -164,7 +164,7 @@ jobs:
           GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go vet -C ./tests ./...
           cd tests
           GOOS=linux GOARCH=loong64 CGO_ENABLED=0 go test -c -o tests.test
-          qemu-loongarch64-static ./tests.test -test.v
+          qemu-loongarch64 ./tests.test -test.v
 
   s390x:
     name: qemu-s390x
@@ -180,7 +180,7 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang binutils-s390x-linux-gnu
+          apt: qemu-user clang binutils-s390x-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate s390x assembly with GOAT
@@ -194,7 +194,7 @@ jobs:
           GOOS=linux GOARCH=s390x CGO_ENABLED=0 go vet -C ./tests ./...
           cd tests
           GOOS=linux GOARCH=s390x CGO_ENABLED=0 go test -c -o tests.test
-          qemu-s390x-static ./tests.test -test.v
+          qemu-s390x ./tests.test -test.v
 
   ppc64le:
     name: qemu-ppc64le
@@ -210,7 +210,7 @@ jobs:
       - name: Install dependencies
         uses: ConorMacBride/install-package@v1
         with:
-          apt: qemu-user-static clang binutils-powerpc64le-linux-gnu gcc-powerpc64le-linux-gnu
+          apt: qemu-user clang binutils-powerpc64le-linux-gnu gcc-powerpc64le-linux-gnu
       - name: Install GOAT
         run: go install .
       - name: Generate ppc64le assembly with GOAT
@@ -224,4 +224,4 @@ jobs:
           GOOS=linux GOARCH=ppc64le CGO_ENABLED=0 go vet -C ./tests ./...
           cd tests
           GOOS=linux GOARCH=ppc64le CGO_ENABLED=0 go test -c -o tests.test
-          qemu-ppc64le-static ./tests.test -test.v
+          qemu-ppc64le ./tests.test -test.v
