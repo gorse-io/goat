@@ -39,6 +39,7 @@ var (
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 	pcHiLine   = regexp.MustCompile(`^pcalau12i\s+(\$[a-z0-9]+), %pc_hi20\(([.A-Za-z_][.A-Za-z0-9_$]*)\)$`)
 	pcLoLine   = regexp.MustCompile(`^addi\.d\s+(\$[a-z0-9]+), (\$[a-z0-9]+), %pc_lo12\(([.A-Za-z_][.A-Za-z0-9_$]*)\)$`)
+	addiSpLine = regexp.MustCompile(`^addi\.d\s+\$sp, \$sp, (-?(?:0x[0-9a-fA-F]+|[0-9]+))$`)
 
 	registers   = []string{"R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
@@ -93,10 +94,167 @@ func init() {
 		GOARCH:             "loong64",
 		BuildTags:          "//go:build !noasm && loong64\n",
 		ClangTriple:        "loongarch64-linux-gnu",
+		PrepareAssembly:    prepareAssembly,
 		ParseAssembly:      parseAssembly,
 		ParseObjectDump:    parseObjectDump,
 		GenerateGoAssembly: generateGoAssembly,
 	})
+}
+
+var (
+	spWordRegex      = regexp.MustCompile(`\$sp\b`)
+	spImmOpRegex     = regexp.MustCompile(`^(\s*(?:(?:f?ld|f?st)\.[a-z]+|addi\.d)\s+\$[a-z0-9]+,\s*\$sp,\s*)(-?(?:0x[0-9a-fA-F]+|[0-9]+))(.*)$`)
+	addiSpRewriteReg = regexp.MustCompile(`^(\s*addi\.d\s+\$sp,\s*\$sp,\s*)(-?(?:0x[0-9a-fA-F]+|[0-9]+))(.*)$`)
+)
+
+const lrSlotReserve = 16
+
+func prepareAssembly(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(raw), "\n")
+	dataSection := false
+	funcStart := -1
+
+	rewriteFunc := func(start, end int) {
+		if start < 0 || start >= end {
+			return
+		}
+		var codeIndices []int
+		for i := start; i < end; i++ {
+			line := lines[i]
+			if attributeLine.MatchString(line) || labelLine.MatchString(line) || nameLine.MatchString(line) {
+				continue
+			}
+			if codeLine.MatchString(line) {
+				codeIndices = append(codeIndices, i)
+			}
+		}
+		if len(codeIndices) == 0 {
+			return
+		}
+		rewritten := make(map[int]string)
+		var spDelta int64
+		hasSub := false
+		for idx, lineIdx := range codeIndices {
+			orig := lines[lineIdx]
+			asm, comment, hasComment := strings.Cut(orig, "#")
+			trimmed := strings.TrimSpace(asm)
+			if trimmed == "ret" {
+				if spDelta != 0 || idx != len(codeIndices)-1 {
+					return
+				}
+				continue
+			}
+			if !spWordRegex.MatchString(trimmed) {
+				continue
+			}
+			if matches := addiSpLine.FindStringSubmatch(trimmed); matches != nil {
+				imm, err := strconv.ParseInt(matches[1], 0, 64)
+				if err != nil {
+					return
+				}
+				var newImm int64
+				if imm < 0 {
+					if spDelta != 0 || -imm+lrSlotReserve > 2048 {
+						return
+					}
+					spDelta -= imm
+					hasSub = true
+					newImm = imm - lrSlotReserve
+				} else if imm > 0 {
+					if spDelta != imm || imm+lrSlotReserve > 2047 {
+						return
+					}
+					spDelta -= imm
+					newImm = imm + lrSlotReserve
+				} else {
+					continue
+				}
+				m := addiSpRewriteReg.FindStringSubmatch(asm)
+				if m == nil {
+					return
+				}
+				newAsm := fmt.Sprintf("%s%d%s", m[1], newImm, m[3])
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "#" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else if m := spImmOpRegex.FindStringSubmatch(asm); m != nil {
+				off, err := strconv.ParseInt(m[2], 0, 64)
+				if err != nil || off < 0 || off+lrSlotReserve > 2047 {
+					return
+				}
+				newAsm := fmt.Sprintf("%s%d%s", m[1], off+lrSlotReserve, m[3])
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "#" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else {
+				return
+			}
+		}
+		if !hasSub || spDelta != 0 {
+			return
+		}
+		for i, line := range rewritten {
+			lines[i] = line
+		}
+	}
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			rewriteFunc(funcStart, i)
+			funcStart = -1
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+		} else if trimmed == ".text" {
+			rewriteFunc(funcStart, i)
+			funcStart = -1
+			dataSection = false
+		} else if !dataSection && nameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			if !strings.HasPrefix(name, ".") {
+				rewriteFunc(funcStart, i)
+				funcStart = i + 1
+			}
+		}
+	}
+	rewriteFunc(funcStart, len(lines))
+
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+func translateStackAdjustments(lines []internal.Line) map[int]string {
+	replacements := make(map[int]string)
+	var spDelta int64
+	for i, line := range lines {
+		asm := line.Assembly
+		if matches := addiSpLine.FindStringSubmatch(asm); matches != nil {
+			imm, err := strconv.ParseInt(matches[1], 0, 64)
+			if err != nil {
+				return nil
+			}
+			spDelta -= imm
+			if imm < 0 {
+				replacements[i] = fmt.Sprintf("\tADDV $%d, R3\n\tMOVV R1, 0(R3)\n", imm)
+			} else {
+				replacements[i] = fmt.Sprintf("\tADDV $%d, R3\n", imm)
+			}
+		} else if asm == "ret" {
+			if spDelta != 0 || i != len(lines)-1 {
+				return nil
+			}
+		}
+	}
+	if spDelta != 0 {
+		return nil
+	}
+	return replacements
 }
 
 func generateLine(line internal.Line) string {
@@ -428,7 +586,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				}
 			}
 		}
-		for _, line := range function.Lines {
+		stackAdjustments := translateStackAdjustments(function.Lines)
+		for i, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
 				builder.WriteString(":\n")
@@ -452,6 +611,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 				}
 				builder.WriteString("\tRET\n")
+			} else if replacement, ok := stackAdjustments[i]; ok {
+				builder.WriteString(replacement)
 			} else {
 				builder.WriteString(generateLine(line))
 			}

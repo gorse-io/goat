@@ -41,6 +41,13 @@ var (
 	dataLine                = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 	leaqRIPLine             = regexp.MustCompile(`^leaq\s+([.A-Za-z_$][A-Za-z0-9_.$]*)\(%rip\), %([a-z0-9]+)(?:\s+#.*)?$`)
 	ripRelativeDataLoadLine = regexp.MustCompile(`^([a-z0-9]+)\s+(\.[A-Za-z0-9_.$]+)\(%rip\), %([a-z0-9]+)(?:\s+#.*)?$`)
+	pushqLine               = regexp.MustCompile(`^pushq\s+%([a-z0-9]+)$`)
+	popqLine                = regexp.MustCompile(`^popq\s+%([a-z0-9]+)$`)
+	subqRspLine             = regexp.MustCompile(`^subq\s+\$(0x[0-9a-fA-F]+|[0-9]+), %rsp$`)
+	addqRspLine             = regexp.MustCompile(`^addq\s+\$(0x[0-9a-fA-F]+|[0-9]+), %rsp$`)
+	andqRspLine             = regexp.MustCompile(`^andq\s+\$(-?(?:0x[0-9a-fA-F]+|[0-9]+)), %rsp$`)
+	movqRspRbpLine          = regexp.MustCompile(`^movq\s+%rsp, %rbp$`)
+	movqRbpRspLine          = regexp.MustCompile(`^movq\s+%rbp, %rsp$`)
 
 	registers    = []string{"DI", "SI", "DX", "CX", "R8", "R9"}
 	xmmRegisters = []string{"X0", "X1", "X2", "X3", "X4", "X5", "X6", "X7"}
@@ -110,6 +117,82 @@ func init() {
 		ParseObjectDump:    parseObjectDump,
 		GenerateGoAssembly: generateGoAssembly,
 	})
+}
+
+func translateStackAdjustments(lines []internal.Line) map[int]string {
+	replacements := make(map[int]string)
+	var spDelta int64
+	bpAt := int64(-1)
+	for i, line := range lines {
+		asm := line.Assembly
+		switch {
+		case pushqLine.MatchString(asm):
+			reg := amd64Register(pushqLine.FindStringSubmatch(asm)[1])
+			spDelta += 8
+			replacements[i] = fmt.Sprintf("\tPUSHQ %s\n", reg)
+		case popqLine.MatchString(asm):
+			reg := amd64Register(popqLine.FindStringSubmatch(asm)[1])
+			spDelta -= 8
+			replacements[i] = fmt.Sprintf("\tPOPQ %s\n", reg)
+		case subqRspLine.MatchString(asm):
+			imm, err := strconv.ParseInt(subqRspLine.FindStringSubmatch(asm)[1], 0, 64)
+			if err != nil {
+				return nil
+			}
+			spDelta += imm
+			replacements[i] = fmt.Sprintf("\tADJSP $%d\n", imm)
+		case addqRspLine.MatchString(asm):
+			imm, err := strconv.ParseInt(addqRspLine.FindStringSubmatch(asm)[1], 0, 64)
+			if err != nil {
+				return nil
+			}
+			spDelta -= imm
+			replacements[i] = fmt.Sprintf("\tADJSP $-%d\n", imm)
+		case movqRspRbpLine.MatchString(asm):
+			bpAt = spDelta
+		case movqRbpRspLine.MatchString(asm):
+			if bpAt < 0 {
+				return nil
+			}
+			diff := spDelta - bpAt
+			if diff < 0 {
+				return nil
+			}
+			spDelta = bpAt
+			if diff > 0 {
+				replacements[i] = fmt.Sprintf("\tADJSP $-%d\n", diff)
+			}
+		case asm == "leaveq":
+			if bpAt < 8 {
+				return nil
+			}
+			diff := spDelta - bpAt
+			if diff < 0 {
+				return nil
+			}
+			spDelta = bpAt - 8
+			if diff > 0 {
+				replacements[i] = fmt.Sprintf("\tADJSP $-%d\n\tPOPQ BP\n", diff)
+			} else {
+				replacements[i] = "\tPOPQ BP\n"
+			}
+		case andqRspLine.MatchString(asm):
+			imm, err := strconv.ParseInt(andqRspLine.FindStringSubmatch(asm)[1], 0, 64)
+			if err != nil || imm != -8 {
+				return nil
+			}
+		case asm == "retq":
+			if spDelta != 0 || i != len(lines)-1 {
+				return nil
+			}
+		case strings.HasSuffix(asm, ", %rsp"):
+			return nil
+		}
+	}
+	if spDelta != 0 {
+		return nil
+	}
+	return replacements
 }
 
 func generateLine(line internal.Line) string {
@@ -383,7 +466,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			}
 			builder.WriteString("\tPUSHQ $0\n")
 		}
-		for _, line := range function.Lines {
+		stackAdjustments := translateStackAdjustments(function.Lines)
+		for i, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
 				builder.WriteString(":\n")
@@ -409,6 +493,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 				}
 				builder.WriteString("\tRET\n")
+			} else if replacement, ok := stackAdjustments[i]; ok {
+				builder.WriteString(replacement)
 			} else {
 				builder.WriteString(generateLine(line))
 			}

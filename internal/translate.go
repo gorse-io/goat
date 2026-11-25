@@ -167,6 +167,11 @@ func (t *TranslateUnit) compile(args ...string) error {
 	if err != nil {
 		return err
 	}
+	if t.Target.PrepareAssembly != nil {
+		if err = t.Target.PrepareAssembly(t.Assembly); err != nil {
+			return err
+		}
+	}
 	if t.Target.GOARCH == "ppc64le" {
 		_, err = RunCommand("powerpc64le-linux-gnu-gcc", append([]string{"-c", t.Assembly, "-o", t.Object}, args...)...)
 	} else {

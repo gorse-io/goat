@@ -40,6 +40,8 @@ var (
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 	adrpLine   = regexp.MustCompile(`^adrp\s+x([0-9]+), ([.A-Za-z_][.A-Za-z0-9_$]*)$`)
 	lo12Line   = regexp.MustCompile(`^add\s+x([0-9]+), x([0-9]+), :lo12:([.A-Za-z_][.A-Za-z0-9_$]*)$`)
+	subSpLine  = regexp.MustCompile(`^sub\s+sp, sp, #(0x[0-9a-fA-F]+|[0-9]+)(?:, lsl #([0-9]+))?$`)
+	addSpLine  = regexp.MustCompile(`^add\s+sp, sp, #(0x[0-9a-fA-F]+|[0-9]+)(?:, lsl #([0-9]+))?$`)
 
 	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
@@ -58,10 +60,207 @@ func init() {
 		// R18 is the "platform register", reserved on the Apple platform.
 		// See https://go.dev/doc/asm#arm64
 		ClangOptions:       []string{"-ffixed-x18"},
+		PrepareAssembly:    prepareAssembly,
 		ParseAssembly:      parseAssembly,
 		ParseObjectDump:    parseObjectDump,
 		GenerateGoAssembly: generateGoAssembly,
 	})
+}
+
+var (
+	spWordRegex     = regexp.MustCompile(`\bsp\b`)
+	spZeroRefRegex  = regexp.MustCompile(`\[sp\]`)
+	spImmRefRegex   = regexp.MustCompile(`\[sp, #(0x[0-9a-fA-F]+|[0-9]+)\]`)
+	addFromSpRegex  = regexp.MustCompile(`^(\s*add\s+x[0-9]+,\s*sp,\s*#)(0x[0-9a-fA-F]+|[0-9]+)(.*)$`)
+	subSpRewriteReg = regexp.MustCompile(`^(\s*sub\s+sp,\s*sp,\s*#)(0x[0-9a-fA-F]+|[0-9]+)(.*)$`)
+	addSpRewriteReg = regexp.MustCompile(`^(\s*add\s+sp,\s*sp,\s*#)(0x[0-9a-fA-F]+|[0-9]+)(.*)$`)
+)
+
+const lrSlotReserve = 16
+
+func prepareAssembly(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(raw), "\n")
+	dataSection := false
+	funcStart := -1
+
+	rewriteFunc := func(start, end int) {
+		if start < 0 || start >= end {
+			return
+		}
+		var codeIndices []int
+		for i := start; i < end; i++ {
+			line := lines[i]
+			if attributeLine.MatchString(line) || labelLine.MatchString(line) || nameLine.MatchString(line) {
+				continue
+			}
+			if codeLine.MatchString(line) {
+				codeIndices = append(codeIndices, i)
+			}
+		}
+		if len(codeIndices) == 0 {
+			return
+		}
+		rewritten := make(map[int]string)
+		var spDelta int64
+		hasSub := false
+		for idx, lineIdx := range codeIndices {
+			orig := lines[lineIdx]
+			asm, comment, hasComment := strings.Cut(orig, "//")
+			trimmed := strings.TrimSpace(asm)
+			if trimmed == "ret" {
+				if spDelta != 0 || idx != len(codeIndices)-1 {
+					return
+				}
+				continue
+			}
+			if !spWordRegex.MatchString(trimmed) {
+				continue
+			}
+			if matches := subSpLine.FindStringSubmatch(trimmed); matches != nil {
+				imm, ok := parseImmediate(matches[1], matches[2])
+				if !ok || matches[2] != "" || spDelta != 0 || imm+lrSlotReserve > 4095 {
+					return
+				}
+				spDelta += imm
+				hasSub = true
+				m := subSpRewriteReg.FindStringSubmatch(asm)
+				if m == nil {
+					return
+				}
+				newAsm := fmt.Sprintf("%s%d%s", m[1], imm+lrSlotReserve, m[3])
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "//" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else if matches := addSpLine.FindStringSubmatch(trimmed); matches != nil {
+				imm, ok := parseImmediate(matches[1], matches[2])
+				if !ok || matches[2] != "" || spDelta != imm || imm+lrSlotReserve > 4095 {
+					return
+				}
+				spDelta -= imm
+				m := addSpRewriteReg.FindStringSubmatch(asm)
+				if m == nil {
+					return
+				}
+				newAsm := fmt.Sprintf("%s%d%s", m[1], imm+lrSlotReserve, m[3])
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "//" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else if spZeroRefRegex.MatchString(asm) && !strings.Contains(asm, "[sp]!") {
+				newAsm := spZeroRefRegex.ReplaceAllString(asm, fmt.Sprintf("[sp, #%d]", lrSlotReserve))
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "//" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else if m := spImmRefRegex.FindStringSubmatch(asm); m != nil && !strings.Contains(asm, "]!") {
+				off, err := strconv.ParseInt(m[1], 0, 64)
+				if err != nil {
+					return
+				}
+				newAsm := spImmRefRegex.ReplaceAllString(asm, fmt.Sprintf("[sp, #%d]", off+lrSlotReserve))
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "//" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else if m := addFromSpRegex.FindStringSubmatch(asm); m != nil {
+				off, err := strconv.ParseInt(m[2], 0, 64)
+				if err != nil || off+lrSlotReserve > 4095 {
+					return
+				}
+				newAsm := fmt.Sprintf("%s%d%s", m[1], off+lrSlotReserve, m[3])
+				if hasComment {
+					rewritten[lineIdx] = newAsm + "//" + comment
+				} else {
+					rewritten[lineIdx] = newAsm
+				}
+			} else {
+				return
+			}
+		}
+		if !hasSub || spDelta != 0 {
+			return
+		}
+		for i, line := range rewritten {
+			lines[i] = line
+		}
+	}
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ".section") {
+			rewriteFunc(funcStart, i)
+			funcStart = -1
+			dataSection = strings.Contains(trimmed, ".rodata") || strings.Contains(trimmed, ".data") || strings.Contains(trimmed, ".sdata")
+		} else if trimmed == ".text" {
+			rewriteFunc(funcStart, i)
+			funcStart = -1
+			dataSection = false
+		} else if !dataSection && nameLine.MatchString(line) {
+			name, _, _ := strings.Cut(line, ":")
+			if !strings.HasPrefix(name, ".") {
+				rewriteFunc(funcStart, i)
+				funcStart = i + 1
+			}
+		}
+	}
+	rewriteFunc(funcStart, len(lines))
+
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+func parseImmediate(raw, shift string) (int64, bool) {
+	val, err := strconv.ParseInt(raw, 0, 64)
+	if err != nil {
+		return 0, false
+	}
+	if shift != "" {
+		s, err := strconv.ParseUint(shift, 10, 6)
+		if err != nil {
+			return 0, false
+		}
+		val <<= s
+	}
+	return val, true
+}
+
+func translateStackAdjustments(lines []internal.Line) map[int]string {
+	replacements := make(map[int]string)
+	var spDelta int64
+	for i, line := range lines {
+		asm := line.Assembly
+		if matches := subSpLine.FindStringSubmatch(asm); matches != nil {
+			imm, ok := parseImmediate(matches[1], matches[2])
+			if !ok {
+				return nil
+			}
+			spDelta += imm
+			replacements[i] = fmt.Sprintf("\tSUB $%d, RSP\n\tMOVD R30, 0(RSP)\n", imm)
+		} else if matches := addSpLine.FindStringSubmatch(asm); matches != nil {
+			imm, ok := parseImmediate(matches[1], matches[2])
+			if !ok {
+				return nil
+			}
+			spDelta -= imm
+			replacements[i] = fmt.Sprintf("\tADD $%d, RSP\n", imm)
+		} else if asm == "ret" {
+			if spDelta != 0 || i != len(lines)-1 {
+				return nil
+			}
+		}
+	}
+	if spDelta != 0 {
+		return nil
+	}
+	return replacements
 }
 
 func generateLine(line internal.Line) string {
@@ -297,7 +496,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, frameSize, offset+resultSize))
 		builder.WriteString(argsBuilder.String())
-		for _, line := range function.Lines {
+		stackAdjustments := translateStackAdjustments(function.Lines)
+		for i, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
 				builder.WriteString(":\n")
@@ -318,6 +518,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 				}
 				builder.WriteString("\tRET\n")
+			} else if replacement, ok := stackAdjustments[i]; ok {
+				builder.WriteString(replacement)
 			} else {
 				builder.WriteString(generateLine(line))
 			}

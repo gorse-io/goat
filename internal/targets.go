@@ -24,6 +24,7 @@ type Target struct {
 	ClangTriple        string
 	Prologue           string
 	ClangOptions       []string
+	PrepareAssembly    func(string) error
 	ParseAssembly      func(string) (map[string][]Line, map[string]int, error)
 	ParseObjectDump    func(string, map[string][]Line) error
 	GenerateGoAssembly func(string, string, string, []Function) error

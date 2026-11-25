@@ -41,6 +41,8 @@ var (
 	symbolLine = regexp.MustCompile(`^\w+\s+<\w+>:$`)
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 	larlLine   = regexp.MustCompile(`^larl\s+%r([0-9]+), ([.A-Za-z_][.A-Za-z0-9_$]*)$`)
+	aghiSpLine = regexp.MustCompile(`^(?:aghi|agfi)\s+%r15,\s*(-?(?:0x[0-9a-fA-F]+|[0-9]+))$`)
+	lmgSpLine  = regexp.MustCompile(`^lmg\s+%r([0-9]+),\s*%r15,\s*(-?[0-9]+)\(%r([0-9]+)\)$`)
 
 	registers   = []string{"R2", "R3", "R4", "R5", "R6"}
 	fpRegisters = []string{"F0", "F2", "F4", "F6"}
@@ -60,6 +62,48 @@ func init() {
 		ParseObjectDump:    parseObjectDump,
 		GenerateGoAssembly: generateGoAssembly,
 	})
+}
+
+func translateStackAdjustments(lines []internal.Line) map[int]string {
+	replacements := make(map[int]string)
+	var spDelta int64
+	for i, line := range lines {
+		asm := line.Assembly
+		if matches := aghiSpLine.FindStringSubmatch(asm); matches != nil {
+			imm, err := strconv.ParseInt(matches[1], 0, 64)
+			if err != nil {
+				return nil
+			}
+			spDelta -= imm
+			if imm < 0 {
+				replacements[i] = fmt.Sprintf("\tADD $%d, R15\n\tMOVD R14, 0(R15)\n", imm)
+			} else {
+				replacements[i] = fmt.Sprintf("\tADD $%d, R15\n", imm)
+			}
+		} else if matches := lmgSpLine.FindStringSubmatch(asm); matches != nil {
+			if spDelta <= 0 {
+				return nil
+			}
+			startReg, err := strconv.Atoi(matches[1])
+			if err != nil || startReg > 15 {
+				return nil
+			}
+			if startReg < 15 {
+				replacements[i] = fmt.Sprintf("\tLMG %s(R%s), R%d, R14\n\tADD $%d, R15\n", matches[2], matches[3], startReg, spDelta)
+			} else {
+				replacements[i] = fmt.Sprintf("\tADD $%d, R15\n", spDelta)
+			}
+			spDelta = 0
+		} else if strings.HasPrefix(asm, "br") && strings.Contains(asm, "%r14") {
+			if spDelta != 0 || i != len(lines)-1 {
+				return nil
+			}
+		}
+	}
+	if spDelta != 0 {
+		return nil
+	}
+	return replacements
 }
 
 func generateLine(line internal.Line) string {
@@ -363,7 +407,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				emitStoreFromFP(&builder, stack[i].B, stack[i].A, slotBase+stackSlotValueOffset(stack[i].B))
 			}
 		}
-		for _, line := range function.Lines {
+		stackAdjustments := translateStackAdjustments(function.Lines)
+		for i, line := range function.Lines {
 			for _, label := range line.Labels {
 				builder.WriteString(label)
 				builder.WriteString(":\n")
@@ -384,6 +429,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 				}
 				builder.WriteString("\tRET\n")
+			} else if replacement, ok := stackAdjustments[i]; ok {
+				builder.WriteString(replacement)
 			} else {
 				builder.WriteString(generateLine(line))
 			}
