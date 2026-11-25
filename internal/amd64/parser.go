@@ -27,7 +27,6 @@ import (
 
 	"github.com/gorse-io/goat/internal"
 	"github.com/klauspost/asmfmt"
-	"github.com/samber/lo"
 )
 
 var (
@@ -330,7 +329,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	for _, function := range functions {
 		var body strings.Builder
 		registerIndex, xmmRegisterIndex, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, internal.Parameter]
+		var stack []internal.StackParameter
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
@@ -350,7 +349,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					xmmRegisterIndex++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			} else {
 				if registerIndex < len(registers) {
@@ -361,7 +360,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					registerIndex++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			}
 			offset += sz
@@ -378,8 +377,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			function.Name, frameSize, offset+internal.SupportedTypes[function.Type]))
 		builder.WriteString(body.String())
 		if len(stack) > 0 {
-			for _, s := range slices.Backward(stack) {
-				builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", s.B.Name, s.A))
+			for _, arg := range slices.Backward(stack) {
+				builder.WriteString(fmt.Sprintf("\tPUSHQ %s+%d(FP)\n", arg.Name, arg.FPOffset))
 			}
 			builder.WriteString("\tPUSHQ $0\n")
 		}
@@ -390,7 +389,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			}
 			if line.Assembly == "retq" {
 				if len(stack) > 0 {
-					for i := 0; i <= len(stack); i++ {
+					for range len(stack) + 1 {
 						builder.WriteString("\tPOPQ DI\n")
 					}
 				}

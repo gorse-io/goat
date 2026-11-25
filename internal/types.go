@@ -50,6 +50,12 @@ type Parameter struct {
 	ParameterType
 }
 
+// StackParameter is a stack-passed argument and its offset from the Go frame pointer.
+type StackParameter struct {
+	Parameter
+	FPOffset int
+}
+
 type Line struct {
 	Labels   []string
 	Assembly string

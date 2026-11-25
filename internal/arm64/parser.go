@@ -25,7 +25,6 @@ import (
 
 	"github.com/gorse-io/goat/internal"
 	"github.com/klauspost/asmfmt"
-	"github.com/samber/lo"
 )
 
 var (
@@ -234,7 +233,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	for _, function := range functions {
 		resultSize := internal.SupportedTypes[function.Type]
 		registerCount, fpRegisterCount, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, internal.Parameter]
+		var stack []internal.StackParameter
 		var argsBuilder strings.Builder
 		for _, param := range function.Parameters {
 			sz := 8
@@ -255,7 +254,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					fpRegisterCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			} else {
 				if registerCount < len(registers) {
@@ -266,7 +265,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					registerCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			}
 			offset += sz
@@ -276,13 +275,13 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		}
 		stackOffset := 0
 		if len(stack) > 0 {
-			for i := 0; i < len(stack); i++ {
-				argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R8\n", stack[i].B.Name, stack[i].A))
+			for _, arg := range stack {
+				argsBuilder.WriteString(fmt.Sprintf("\tMOVD %s+%d(FP), R8\n", arg.Name, arg.FPOffset))
 				argsBuilder.WriteString(fmt.Sprintf("\tMOVD R8, %d(RSP)\n", stackOffset))
-				if stack[i].B.Pointer {
+				if arg.Pointer {
 					stackOffset += 8
 				} else {
-					stackOffset += internal.SupportedTypes[stack[i].B.Type]
+					stackOffset += internal.SupportedTypes[arg.Type]
 				}
 			}
 		}
