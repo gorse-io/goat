@@ -124,20 +124,20 @@ func add(a, b, result unsafe.Pointer, n int64)
 // flags: -mavx -O0
 // source: example/src/add.c
 
-TEXT ·add(SB), $0-32
-	MOVQ a+0(FP), DI
-	MOVQ b+8(FP), SI
-	MOVQ result+16(FP), DX
-	MOVQ n+24(FP), CX
-	BYTE $0x55                           // pushq	%rbp
-	WORD $0x8948; BYTE $0xe5             // movq	%rsp, %rbp
-	LONG $0xf8e48348                     // andq	$-8, %rsp
-	LONG $0x30ec8348                     // subq	$48, %rsp
-	LONG $0x247c8948; BYTE $0x28         // movq	%rdi, 40(%rsp)
-	LONG $0x24748948; BYTE $0x20         // movq	%rsi, 32(%rsp)
-	LONG $0x24548948; BYTE $0x18         // movq	%rdx, 24(%rsp)
-	LONG $0x244c8948; BYTE $0x10         // movq	%rcx, 16(%rsp)
-	QUAD $0x000000082444c748; BYTE $0x00 // movq	$0, 8(%rsp)
+TEXT ·add(SB), $16-32
+	MOVQ  a+0(FP), DI
+	MOVQ  b+8(FP), SI
+	MOVQ  result+16(FP), DX
+	MOVQ  n+24(FP), CX
+	PUSHQ BP
+	WORD  $0x8948; BYTE $0xe5             // movq	%rsp, %rbp
+	LONG  $0xf8e48348                     // andq	$-8, %rsp
+	ADJSP $48
+	LONG  $0x247c8948; BYTE $0x28         // movq	%rdi, 40(%rsp)
+	LONG  $0x24748948; BYTE $0x20         // movq	%rsi, 32(%rsp)
+	LONG  $0x24548948; BYTE $0x18         // movq	%rdx, 24(%rsp)
+	LONG  $0x244c8948; BYTE $0x10         // movq	%rcx, 16(%rsp)
+	QUAD  $0x000000082444c748; BYTE $0x00 // movq	$0, 8(%rsp)
 
 LBB0_1:
 	LONG $0x24448b48; BYTE $0x08 // movq	8(%rsp), %rax
@@ -158,8 +158,8 @@ LBB0_1:
 	JMP  LBB0_1
 
 LBB0_4:
-	WORD $0x8948; BYTE $0xec // movq	%rbp, %rsp
-	BYTE $0x5d               // popq	%rbp
+	ADJSP $-48
+	POPQ  BP
 	RET
 ```
 
