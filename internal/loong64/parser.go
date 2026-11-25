@@ -356,12 +356,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	builder.WriteString(header)
 	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
-		returnSize := 0
-		if function.Type != "void" {
-			returnSize += 8
-		}
 		resultSize := internal.SupportedTypes[function.Type]
-		textFrameSize := max(returnSize, function.StackSize)
+		textFrameSize := function.StackSize
 		// Go's assembler requires frame sizes to be aligned to 16 bytes on loong64
 		if textFrameSize%16 != 0 {
 			textFrameSize += 16 - textFrameSize%16
