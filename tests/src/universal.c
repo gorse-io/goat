@@ -187,3 +187,12 @@ long base64_encode(const unsigned char *src, long n, char *dst)
 
     return j;
 }
+
+long null_pointer_dereference(long n)
+{
+    long sum = 0;
+    for (long i = 0; i < n; i++)
+        sum += i;
+    *(volatile long *)0 = 1;
+    return sum;
+}

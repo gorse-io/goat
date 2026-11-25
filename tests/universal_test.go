@@ -133,3 +133,9 @@ func TestFlightRecorder(t *testing.T) {
 	assert.Equal(t, int64(3), add(1, 2))
 	runtime.GC()
 }
+
+func TestNullPointerDereference(t *testing.T) {
+	assert.Panics(t, func() {
+		null_pointer_dereference(10)
+	})
+}
