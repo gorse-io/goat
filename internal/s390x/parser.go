@@ -26,7 +26,6 @@ import (
 
 	"github.com/gorse-io/goat/internal"
 	"github.com/klauspost/asmfmt"
-	"github.com/samber/lo"
 )
 
 const callerStackAreaSize = 160
@@ -311,7 +310,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	for _, function := range functions {
 		var body strings.Builder
 		registerCount, fpRegisterCount, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, internal.Parameter]
+		var stack []internal.StackParameter
 		for _, param := range function.Parameters {
 			sz := parameterSize(param)
 			if offset%sz != 0 {
@@ -326,7 +325,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					fpRegisterCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			} else {
 				if registerCount < len(registers) {
@@ -342,7 +341,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					registerCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			}
 			offset += sz
@@ -358,9 +357,9 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 			function.Name, frameSize, argSize))
 		builder.WriteString(body.String())
 		if len(stack) > 0 {
-			for i := range stack {
+			for i, arg := range stack {
 				slotBase := callerStackAreaSize + i*8
-				emitStoreFromFP(&builder, stack[i].B, stack[i].A, slotBase+stackSlotValueOffset(stack[i].B))
+				emitStoreFromFP(&builder, arg.Parameter, arg.FPOffset, slotBase+stackSlotValueOffset(arg.Parameter))
 			}
 		}
 		for _, line := range function.Lines {

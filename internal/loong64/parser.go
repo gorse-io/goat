@@ -25,7 +25,6 @@ import (
 
 	"github.com/gorse-io/goat/internal"
 	"github.com/klauspost/asmfmt"
-	"github.com/samber/lo"
 )
 
 var (
@@ -365,7 +364,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
 			function.Name, textFrameSize, argumentSize(function, resultSize)))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
-		var stack []lo.Tuple2[int, internal.Parameter]
+		var stack []internal.StackParameter
 		for _, param := range function.Parameters {
 			sz := 8
 			if param.Pointer {
@@ -385,7 +384,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					fpRegisterCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			} else {
 				if registerCount < len(registers) {
@@ -396,7 +395,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 					}
 					registerCount++
 				} else {
-					stack = append(stack, lo.Tuple2[int, internal.Parameter]{A: offset, B: param})
+					stack = append(stack, internal.StackParameter{FPOffset: offset, Parameter: param})
 				}
 			}
 			offset += sz
@@ -406,25 +405,25 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		}
 		frameSize := 0
 		if len(stack) > 0 {
-			for i := 0; i < len(stack); i++ {
-				if stack[i].B.Pointer {
+			for _, arg := range stack {
+				if arg.Pointer {
 					frameSize += 8
 				} else {
-					frameSize += internal.SupportedTypes[stack[i].B.Type]
+					frameSize += internal.SupportedTypes[arg.Type]
 				}
 			}
 			stackoffset := 0
-			for i := 0; i < len(stack); i++ {
+			for i, arg := range stack {
 				if i > 0 {
-					builder.WriteString(fmt.Sprintf("	ADDV $%d, R3\n", frameSize))
+					builder.WriteString(fmt.Sprintf("\tADDV $%d, R3\n", frameSize))
 				}
-				builder.WriteString(fmt.Sprintf("	MOVV %s+%d(FP), R12\n", stack[i].B.Name, stack[i].A))
+				builder.WriteString(fmt.Sprintf("	MOVV %s+%d(FP), R12\n", arg.Name, arg.FPOffset))
 				builder.WriteString(fmt.Sprintf("	ADDV $-%d, R3\n", frameSize))
 				builder.WriteString(fmt.Sprintf("	MOVV R12, (%d)(R3)\n", stackoffset))
-				if stack[i].B.Pointer {
+				if arg.Pointer {
 					stackoffset += 8
 				} else {
-					stackoffset += internal.SupportedTypes[stack[i].B.Type]
+					stackoffset += internal.SupportedTypes[arg.Type]
 				}
 			}
 		}
