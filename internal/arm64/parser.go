@@ -289,7 +289,7 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		if stackOffset%8 != 0 {
 			stackOffset += 8 - stackOffset%8
 		}
-		frameSize := max(stackOffset, function.StackSize)
+		frameSize := stackOffset + function.StackSize
 		// Go's assembler requires frame sizes to be aligned to 16 bytes on arm64
 		if frameSize%16 != 0 {
 			frameSize += 16 - frameSize%16
