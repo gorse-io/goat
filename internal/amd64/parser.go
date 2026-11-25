@@ -21,6 +21,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -174,6 +175,7 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 		dataName     string
 		dataSection  bool
 		data         []internal.DataSymbol
+		cfiRegex     = regexp.MustCompile(`^\s+\.cfi_def_cfa_offset\s+(\d+)`)
 	)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -201,6 +203,17 @@ func parseAssembly(path string) (map[string][]internal.Line, map[string]int, err
 			} else {
 				data = append(data, internal.DataSymbol{Name: dataName, Data: parsed})
 			}
+		} else if m := cfiRegex.FindStringSubmatch(line); m != nil {
+			if offset, err := strconv.Atoi(m[1]); err == nil {
+				// On x86-64, CFA offset includes the 8-byte return address
+				// pushed by the call instruction. Subtract it to get the
+				// actual stack frame usage.
+				adjusted := max(0, offset-8)
+				if adjusted > stackSizes[functionName] {
+					stackSizes[functionName] = adjusted
+				}
+			}
+			continue
 		} else if attributeLine.MatchString(line) {
 			continue
 		} else if nameLine.MatchString(line) {
@@ -315,10 +328,6 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	builder.WriteString(header)
 	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
-		returnSize := 0
-		if function.Type != "void" {
-			returnSize += 8
-		}
 		var body strings.Builder
 		registerIndex, xmmRegisterIndex, offset := 0, 0, 0
 		var stack []lo.Tuple2[int, internal.Parameter]
@@ -360,8 +369,13 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
+		frameSize := function.StackSize
+		// Go's assembler requires frame sizes to be aligned to 16 bytes
+		if frameSize%16 != 0 {
+			frameSize += 16 - frameSize%16
+		}
 		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, offset+internal.SupportedTypes[function.Type]))
+			function.Name, frameSize, offset+internal.SupportedTypes[function.Type]))
 		builder.WriteString(body.String())
 		if len(stack) > 0 {
 			for _, s := range slices.Backward(stack) {
