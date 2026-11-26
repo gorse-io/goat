@@ -278,6 +278,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				}
 			}
 		}
+		// Reserve a nonzero frame so the Go assembler saves LR even for leaf functions.
+		stackOffset += 16
 		if stackOffset%8 != 0 {
 			stackOffset += 8 - stackOffset%8
 		}

@@ -187,7 +187,7 @@ func rewriteReservedRegister(binaryText, asm string) (string, error) {
 	return fmt.Sprintf("%08x", instruction), nil
 }
 
-func argumentSize(function internal.Function, returnSize int) int {
+func argumentSize(function internal.Function) int {
 	offset := 0
 	for _, param := range function.Parameters {
 		sz := 8
@@ -202,7 +202,7 @@ func argumentSize(function internal.Function, returnSize int) int {
 	if offset%8 != 0 {
 		offset += 8 - offset%8
 	}
-	return offset + returnSize
+	return offset + internal.SupportedTypes[function.Type]
 }
 
 func parseAssembly(path string) (map[string][]internal.Line, map[string]int, error) {
@@ -349,13 +349,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	builder.WriteString(header)
 	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
-		returnSize := 0
-		if function.Type != "void" {
-			returnSize += 8
-		}
-		resultSize := internal.SupportedTypes[function.Type]
-		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, argumentSize(function, resultSize)))
+		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $0-%d\n",
+			function.Name, argumentSize(function)))
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []internal.StackParameter
 		for _, param := range function.Parameters {
