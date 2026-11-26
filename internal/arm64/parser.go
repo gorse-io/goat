@@ -291,10 +291,10 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				}
 			}
 		}
-		// Reserve a nonzero frame only when the function body uses SP and has no stack
-		// arguments, so the Go assembler allocates a frame and protects the caller's FP.
-		if stackOffset == 0 && usesStackPointer(function.Lines) {
-			stackOffset += 16
+		// Reserve a nonzero frame when the function body uses SP so the Go assembler
+		// allocates a frame and protects the caller's FP.
+		if usesStackPointer(function.Lines) {
+			stackOffset = max(stackOffset, 16)
 		}
 		if stackOffset%8 != 0 {
 			stackOffset += 8 - stackOffset%8
