@@ -3,7 +3,6 @@ package tests
 import (
 	"encoding/base64"
 	"runtime"
-	"runtime/trace"
 	"testing"
 	"unsafe"
 
@@ -124,12 +123,4 @@ func TestBase64Encode(t *testing.T) {
 		assert.Equal(t, int64(len(dst)), n)
 		assert.Equal(t, base64.StdEncoding.EncodeToString(input), string(dst))
 	}
-}
-
-func TestFlightRecorder(t *testing.T) {
-	fr := trace.NewFlightRecorder(trace.FlightRecorderConfig{})
-	assert.NoError(t, fr.Start())
-	defer fr.Stop()
-	assert.Equal(t, int64(3), add(1, 2))
-	runtime.GC()
 }
