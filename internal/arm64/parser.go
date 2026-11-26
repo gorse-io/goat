@@ -38,6 +38,7 @@ var (
 	dataLine   = regexp.MustCompile(`^\w+:\s+\w+\s+.+$`)
 	adrpLine   = regexp.MustCompile(`^adrp\s+x([0-9]+), ([.A-Za-z_][.A-Za-z0-9_$]*)$`)
 	lo12Line   = regexp.MustCompile(`^add\s+x([0-9]+), x([0-9]+), :lo12:([.A-Za-z_][.A-Za-z0-9_$]*)$`)
+	spRegister = regexp.MustCompile(`(?i)\b(?:w?sp)\b`)
 
 	registers   = []string{"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"}
 	fpRegisters = []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"}
@@ -46,6 +47,18 @@ var (
 
 func dataSymbolName(name string) string {
 	return internal.GoDataSymbolName(name)
+}
+
+func usesStackPointer(lines []internal.Line) bool {
+	for _, line := range lines {
+		if jmpLine.MatchString(line.Assembly) || adrpLine.MatchString(line.Assembly) || lo12Line.MatchString(line.Assembly) {
+			continue
+		}
+		if spRegister.MatchString(line.Assembly) {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
@@ -278,8 +291,11 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 				}
 			}
 		}
-		// Reserve a nonzero frame so the Go assembler saves LR even for leaf functions.
-		stackOffset += 16
+		// Reserve a nonzero frame when the function body uses SP so the Go assembler
+		// allocates a frame and protects the caller's FP.
+		if usesStackPointer(function.Lines) {
+			stackOffset = max(stackOffset, 16)
+		}
 		if stackOffset%8 != 0 {
 			stackOffset += 8 - stackOffset%8
 		}
