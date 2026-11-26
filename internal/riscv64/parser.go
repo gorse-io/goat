@@ -278,10 +278,6 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 	builder.WriteString(header)
 	builder.WriteString(internal.GenerateDataSymbols(dataSymbols, binary.LittleEndian))
 	for _, function := range functions {
-		returnSize := 0
-		if function.Type != "void" {
-			returnSize += 8
-		}
 		var body strings.Builder
 		registerCount, fpRegisterCount, offset := 0, 0, 0
 		var stack []internal.StackParameter
@@ -323,8 +319,8 @@ func generateGoAssembly(buildTags string, header string, goAssemblyPath string, 
 		if offset%8 != 0 {
 			offset += 8 - offset%8
 		}
-		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $%d-%d\n",
-			function.Name, returnSize, offset+internal.SupportedTypes[function.Type]))
+		builder.WriteString(fmt.Sprintf("\nTEXT ·%v(SB), $0-%d\n",
+			function.Name, offset+internal.SupportedTypes[function.Type]))
 		builder.WriteString(body.String())
 		frameSize := 0
 		if len(stack) > 0 {
