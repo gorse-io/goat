@@ -154,7 +154,7 @@ func (t *TranslateUnit) compile(args ...string) error {
 			"-ffixed-r0", "-ffixed-r30")
 	} else {
 		args = append(args, "-mllvm", "-inline-threshold=1000",
-			"-fno-exceptions", "-fno-rtti", "-fno-builtin")
+			"-fno-asynchronous-unwind-tables", "-fno-exceptions", "-fno-rtti", "-fno-builtin")
 	}
 	args = append(args, t.Target.ClangOptions...)
 	clangPath := GetClangPath()
